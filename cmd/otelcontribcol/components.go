@@ -132,6 +132,7 @@ func components() (component.Factories, error) {
 		receivercreator.NewFactory(),
 		redisreceiver.NewFactory(),
 		sapmreceiver.NewFactory(),
+		scraperhelper.NewFactory(),
 		signalfxreceiver.NewFactory(),
 		simpleprometheusreceiver.NewFactory(),
 		splunkhecreceiver.NewFactory(),
