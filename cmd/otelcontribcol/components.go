@@ -125,6 +125,7 @@ func components() (component.Factories, error) {
 		fluentforwardreceiver.NewFactory(),
 		influxdbreceiver.NewFactory(),
 		jmxreceiver.NewFactory(),
+		kafkareceiver.NewFactory(),
 		kafkametricsreceiver.NewFactory(),
 		k8sclusterreceiver.NewFactory(),
 		kubeletstatsreceiver.NewFactory(),
