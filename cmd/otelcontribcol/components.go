@@ -190,6 +190,9 @@ func components() (component.Factories, error) {
 		return component.Factories{}, err
 	}
 
+	// drop the span processor from core while we are migrating
+	delete(factories.Processors, "span")
+
 	processors := []component.ProcessorFactory{
 		groupbyattrsprocessor.NewFactory(),
 		groupbytraceprocessor.NewFactory(),
