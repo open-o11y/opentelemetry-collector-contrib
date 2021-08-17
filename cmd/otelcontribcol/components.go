@@ -154,6 +154,9 @@ func components() (component.Factories, error) {
 		return component.Factories{}, err
 	}
 
+	// drop the opencensus exporter from core while we are migrating
+	delete(factories.Exporters, "opencensus")
+
 	exporters := []component.ExporterFactory{
 		alibabacloudlogserviceexporter.NewFactory(),
 		awsemfexporter.NewFactory(),
