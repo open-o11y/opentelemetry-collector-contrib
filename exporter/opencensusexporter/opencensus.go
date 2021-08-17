@@ -23,12 +23,11 @@ import (
 	agentmetricspb "github.com/census-instrumentation/opencensus-proto/gen-go/agent/metrics/v1"
 	agenttracepb "github.com/census-instrumentation/opencensus-proto/gen-go/agent/trace/v1"
 	resourcepb "github.com/census-instrumentation/opencensus-proto/gen-go/resource/v1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.opentelemetry.io/collector/translator/internaldata"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // See https://godoc.org/google.golang.org/grpc#ClientConn.NewStream
