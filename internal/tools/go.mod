@@ -17,7 +17,7 @@ require (
 	go.opentelemetry.io/build-tools/checkdoc v0.0.0-20210826185254-a20c5b1e2d7c
 	go.opentelemetry.io/build-tools/issuegenerator v0.0.0-20210826185254-a20c5b1e2d7c
 	go.uber.org/atomic v1.8.0 // indirect
-	golang.org/x/tools v0.1.3
+	golang.org/x/tools v0.1.5
 	google.golang.org/protobuf v1.27.1 // indirect
 )
 
