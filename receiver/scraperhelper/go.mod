@@ -7,7 +7,7 @@ require (
 	go.opentelemetry.io/collector v0.35.0
 	go.opentelemetry.io/collector/model v0.35.0
 	go.opentelemetry.io/otel v1.0.0-RC3
-	go.opentelemetry.io/otel/oteltest v1.0.0-RC2
+	go.opentelemetry.io/otel/oteltest v1.0.0-RC3
 	go.opentelemetry.io/otel/trace v1.0.0-RC3
 	go.uber.org/zap v1.19.0
 
