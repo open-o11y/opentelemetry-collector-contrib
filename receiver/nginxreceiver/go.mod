@@ -11,9 +11,8 @@ require (
 	github.com/testcontainers/testcontainers-go v0.11.1
 	go.opentelemetry.io/collector v0.35.0
 	go.opentelemetry.io/collector/model v0.35.0
-	go.uber.org/zap v1.19.0
+	go.uber.org/zap v1.19.1
 	golang.org/x/time v0.0.0-20210611083556-38a9dc6acbc6 // indirect
-	golang.org/x/tools v0.1.3 // indirect
 )
 
 require (
