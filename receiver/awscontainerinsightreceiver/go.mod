@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/aws/aws-sdk-go v1.40.53
-	github.com/google/cadvisor v0.41.0
+	github.com/google/cadvisor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/aws/awsutil v0.36.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/aws/containerinsight v0.36.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/aws/k8s v0.36.0
@@ -30,7 +30,7 @@ require (
 	github.com/checkpoint-restore/go-criu/v5 v5.0.0 // indirect
 	github.com/cilium/ebpf v0.6.2 // indirect
 	github.com/containerd/console v1.0.2 // indirect
-	github.com/containerd/containerd v1.4.9 // indirect
+	github.com/containerd/containerd v1.4.11 // indirect
 	github.com/containerd/ttrpc v1.0.2 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.2 // indirect
