@@ -597,6 +597,9 @@ rpc_duration_seconds_sum{foo="no_quantile"} 101
 rpc_duration_seconds_count{foo="no_quantile"} 55
 `
 
+// target3Page3 has higher value than previous scrapes.
+// So, even after seeing a failed scrape, start_timestamp should not be reset for target3page3
+// Start_timestamp should be of the initial scrape for target3page3
 var target3Page3 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge

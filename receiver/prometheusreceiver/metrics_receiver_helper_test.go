@@ -256,7 +256,6 @@ func isFirstFailedScrape(t *testing.T, metrics []*pdata.Metric) bool {
 		return true
 	}
 
-	stalenessFlag := false
 	for _, m := range metrics {
 		switch m.Name() {
 		case "up", "scrape_duration_seconds", "scrape_samples_scraped", "scrape_samples_post_metric_relabeling", "scrape_series_added":
@@ -265,29 +264,25 @@ func isFirstFailedScrape(t *testing.T, metrics []*pdata.Metric) bool {
 		switch m.DataType() {
 		case pdata.MetricDataTypeGauge:
 			for i := 0; i < m.Gauge().DataPoints().Len(); i++ {
-				stalenessFlag = m.Gauge().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
-				if !stalenessFlag {
+				if !m.Gauge().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
 					return false
 				}
 			}
 		case pdata.MetricDataTypeSum:
 			for i := 0; i < m.Sum().DataPoints().Len(); i++ {
-				stalenessFlag = m.Sum().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
-				if !stalenessFlag {
+				if !m.Sum().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
 					return false
 				}
 			}
 		case pdata.MetricDataTypeHistogram:
 			for i := 0; i < m.Histogram().DataPoints().Len(); i++ {
-				stalenessFlag = m.Histogram().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
-				if !stalenessFlag {
+				if !m.Histogram().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
 					return false
 				}
 			}
 		case pdata.MetricDataTypeSummary:
 			for i := 0; i < m.Summary().DataPoints().Len(); i++ {
-				stalenessFlag = m.Summary().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
-				if !stalenessFlag {
+				if !m.Summary().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
 					return false
 				}
 			}
