@@ -37,7 +37,6 @@ import (
 	"go.opentelemetry.io/collector/config"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/model/pdata"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v2"
 )
 
@@ -545,7 +544,6 @@ func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, 
 	mp.wg.Wait()
 	metrics := cms.AllMetrics()
 	fmt.Println(len(metrics))
-	printPdataMetrics(metrics)
 	// split and store results by target name
 	pResults := make(map[string][]*pdata.ResourceMetrics)
 	for _, md := range metrics {
@@ -580,77 +578,4 @@ func flattenTargets(targets map[string][]*scrape.Target) []*scrape.Target {
 		flatTargets = append(flatTargets, target...)
 	}
 	return flatTargets
-}
-
-func printPdataMetrics(metrics []pdata.Metrics) {
-	for _, md := range metrics {
-		rms := md.ResourceMetrics()
-		for i := 0; i < rms.Len(); i++ {
-			name, _ := rms.At(i).Resource().Attributes().Get("service.name")
-			fmt.Println(name.AsString())
-			ilms := rms.At(i).InstrumentationLibraryMetrics()
-			for j := 0; j < ilms.Len(); j++ {
-				metricSlice := ilms.At(j).Metrics()
-				for i := 0; i < metricSlice.Len(); i++ {
-					m := metricSlice.At(i)
-					switch m.Name() {
-					case "scrape_duration_seconds", "scrape_samples_scraped", "scrape_samples_post_metric_relabeling", "scrape_series_added":
-						continue
-					}
-					fmt.Print(m.Name())
-					fmt.Print("\t")
-					fmt.Print(m.Description())
-					fmt.Print("\t")
-					switch m.DataType() {
-					case pdata.MetricDataTypeGauge:
-						for i := 0; i < m.Gauge().DataPoints().Len(); i++ {
-							fmt.Print(m.Gauge().DataPoints().At(i).DoubleVal())
-							fmt.Print("\t")
-							fmt.Print("Point_Timestamp { ", timestamppb.New(m.Gauge().DataPoints().At(i).Timestamp().AsTime()), " }")
-							fmt.Print("\t")
-						}
-					case pdata.MetricDataTypeSum:
-						for i := 0; i < m.Sum().DataPoints().Len(); i++ {
-							fmt.Print(m.Sum().DataPoints().At(i).DoubleVal())
-							fmt.Print("\t")
-						}
-						fmt.Print("Start_Timestamp { ", timestamppb.New(m.Sum().DataPoints().At(0).StartTimestamp().AsTime()), " }")
-						fmt.Print("\t")
-						fmt.Print("Point_Timestamp { ", timestamppb.New(m.Sum().DataPoints().At(0).Timestamp().AsTime()), " }")
-						fmt.Print("\t")
-					case pdata.MetricDataTypeHistogram:
-						for i := 0; i < m.Histogram().DataPoints().Len(); i++ {
-							fmt.Print("Count: ")
-							fmt.Print(m.Histogram().DataPoints().At(i).Count())
-							fmt.Print(" Sum: ")
-							fmt.Print(m.Histogram().DataPoints().At(i).Sum())
-							fmt.Print("\t")
-						}
-						fmt.Print("Start_Timestamp { ", timestamppb.New(m.Histogram().DataPoints().At(0).StartTimestamp().AsTime()), " }")
-						fmt.Print("\t")
-						fmt.Print("Point_Timestamp { ", timestamppb.New(m.Histogram().DataPoints().At(0).Timestamp().AsTime()), " }")
-						fmt.Print("\t")
-					case pdata.MetricDataTypeSummary:
-						for i := 0; i < m.Summary().DataPoints().Len(); i++ {
-							fmt.Print("Count: ")
-							fmt.Print(m.Summary().DataPoints().At(i).Count())
-							fmt.Print(" Sum: ")
-							fmt.Print(m.Summary().DataPoints().At(i).Sum())
-							fmt.Print("\t")
-						}
-						fmt.Print("Start_Timestamp { ", timestamppb.New(m.Summary().DataPoints().At(0).StartTimestamp().AsTime()), " }")
-						fmt.Print("\t")
-						fmt.Print("Point_Timestamp { ", timestamppb.New(m.Summary().DataPoints().At(0).Timestamp().AsTime()), " }")
-						fmt.Print("\t")
-
-					}
-
-					fmt.Println("")
-				}
-			}
-			fmt.Println("++++++++++++++++++")
-			fmt.Println()
-		}
-	}
-
 }
