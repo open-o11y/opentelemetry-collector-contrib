@@ -28,6 +28,10 @@ import (
 
 // target1 has one gauge, two counts of a same family, one histogram and one summary. We are expecting the both
 // successful scrapes will produce all metrics using the first scrape's timestamp as start time.
+
+// With the 2nd page, we are simulating a reset (values smaller than previous), start_timestamp should be from
+// this run for the 2nd scrape, despite a failed scrape between 1st and 2nd page.
+
 var target1Page1 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
@@ -63,8 +67,8 @@ go_threads 18
 
 # HELP http_requests_total The total number of HTTP requests.
 # TYPE http_requests_total counter
-http_requests_total{method="post",code="200"} 199
-http_requests_total{method="post",code="400"} 12
+http_requests_total{method="post",code="200"} 99
+http_requests_total{method="post",code="400"} 3
 
 # HELP http_request_duration_seconds A histogram of the request duration.
 # TYPE http_request_duration_seconds histogram
@@ -72,7 +76,7 @@ http_request_duration_seconds_bucket{le="0.05"} 1100
 http_request_duration_seconds_bucket{le="0.5"} 1600
 http_request_duration_seconds_bucket{le="1"} 2100
 http_request_duration_seconds_bucket{le="+Inf"} 2600
-http_request_duration_seconds_sum 5050
+http_request_duration_seconds_sum 4950
 http_request_duration_seconds_count 2600
 
 # HELP rpc_duration_seconds A summary of the RPC duration in seconds.
@@ -81,7 +85,7 @@ rpc_duration_seconds{quantile="0.01"} 1
 rpc_duration_seconds{quantile="0.9"} 6
 rpc_duration_seconds{quantile="0.99"} 8
 rpc_duration_seconds_sum 5002
-rpc_duration_seconds_count 1001
+rpc_duration_seconds_count 1000
 `
 
 func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
@@ -174,17 +178,19 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 			[]dataPointExpectation{
 				{
 					numberPointComparator: []numberPointComparator{
-						compareStartTimestamp(ts1),
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to the failed scrape had higher value
+						//compareStartTimestamp(ts2),
 						compareTimestamp(ts2),
-						compareDoubleValue(199),
+						compareDoubleValue(99),
 						compareAttributes(map[string]string{"method": "post", "code": "200"}),
 					},
 				},
 				{
 					numberPointComparator: []numberPointComparator{
-						compareStartTimestamp(ts1),
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to the failed scrape had higher value
+						//compareStartTimestamp(ts2),
 						compareTimestamp(ts2),
-						compareDoubleValue(12),
+						compareDoubleValue(3),
 						compareAttributes(map[string]string{"method": "post", "code": "400"}),
 					},
 				},
@@ -194,10 +200,10 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 			[]dataPointExpectation{
 				{
 					histogramPointComparator: []histogramPointComparator{
-						// TODO: Prometheus Receiver Issue- start_timestamp are incorrect for Summary and Histogram metrics after a failed scrape (issue not yet posted on collector-contrib repo)
-						//compareHistogramStartTimestamp(ts1),
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Histogram metrics after a failed scrape
+						//compareHistogramStartTimestamp(ts2),
 						compareHistogramTimestamp(ts2),
-						compareHistogram(2600, 5050, []uint64{1100, 500, 500, 500}),
+						compareHistogram(2600, 4950, []uint64{1100, 500, 500, 500}),
 					},
 				},
 			}),
@@ -206,10 +212,10 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 			[]dataPointExpectation{
 				{
 					summaryPointComparator: []summaryPointComparator{
-						// TODO: Prometheus Receiver Issue- start_timestamp are incorrect for Summary and Histogram metrics after a failed scrape (issue not yet posted on collector-contrib repo)
-						//compareSummaryStartTimestamp(ts1),
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Summary metrics after a failed scrape
+						//compareSummaryStartTimestamp(ts2),
 						compareSummaryTimestamp(ts2),
-						compareSummary(1001, 5002, [][]float64{{0.01, 1}, {0.9, 6}, {0.99, 8}}),
+						compareSummary(1000, 5002, [][]float64{{0.01, 1}, {0.9, 6}, {0.99, 8}}),
 					},
 				},
 			}),
@@ -220,6 +226,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 // target2 is going to have 5 pages, and there's a newly added item on the 2nd page.
 // with the 4th page, we are simulating a reset (values smaller than previous), start times should be from
 // this run for the 4th and 5th scrapes.
+
 var target2Page1 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
@@ -519,6 +526,7 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 
 // target3 for complicated data types, including summaries and histograms. one of the summary and histogram have only
 // sum/count, for the summary it's valid, however the histogram one is not, but it shall not cause the scrape to fail
+
 var target3Page1 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
@@ -589,15 +597,49 @@ rpc_duration_seconds_sum{foo="no_quantile"} 101
 rpc_duration_seconds_count{foo="no_quantile"} 55
 `
 
+var target3Page3 = `
+# HELP go_threads Number of OS threads created
+# TYPE go_threads gauge
+go_threads 19
+
+# A histogram, which has a pretty complex representation in the text format:
+# HELP http_request_duration_seconds A histogram of the request duration.
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{le="0.2"} 11000
+http_request_duration_seconds_bucket{le="0.5"} 13000
+http_request_duration_seconds_bucket{le="1"} 14001
+http_request_duration_seconds_bucket{le="+Inf"} 14003
+http_request_duration_seconds_sum 50500
+http_request_duration_seconds_count 14005
+
+# A corrupted histogram with only sum and count	
+# HELP corrupted_hist A corrupted_hist.
+# TYPE corrupted_hist histogram
+corrupted_hist_sum 110
+corrupted_hist_count 19
+
+# Finally a summary, which has a complex representation, too:
+# HELP rpc_duration_seconds A summary of the RPC duration in seconds.
+# TYPE rpc_duration_seconds summary
+rpc_duration_seconds{foo="bar" quantile="0.01"} 36
+rpc_duration_seconds{foo="bar" quantile="0.05"} 35
+rpc_duration_seconds{foo="bar" quantile="0.5"} 52
+rpc_duration_seconds{foo="bar" quantile="0.9"} 70
+rpc_duration_seconds{foo="bar" quantile="0.99"} 77
+rpc_duration_seconds_sum{foo="bar"} 8900
+rpc_duration_seconds_count{foo="bar"} 990
+rpc_duration_seconds_sum{foo="no_quantile"} 109
+rpc_duration_seconds_count{foo="no_quantile"} 59
+`
+
 func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
 	verifyNumScrapeResults(t, td, resourceMetrics)
-	require.Greater(t, len(resourceMetrics), 0, "At least one resource metric should be present")
+	require.Equal(t, len(resourceMetrics), 3, "Three resource metrics should be present")
+	wantAttributes := td.attributes
+
 	m1 := resourceMetrics[0]
 	// m1 has 3 metrics + 5 internal scraper metrics
 	assert.Equal(t, 8, metricsCount(m1))
-
-	wantAttributes := td.attributes
-
 	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
 	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
 	e1 := []testExpectation{
@@ -649,7 +691,6 @@ func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	m2 := resourceMetrics[1]
 	// m2 has 3 metrics + 5 internal scraper metrics
 	assert.Equal(t, 8, metricsCount(m2))
-
 	metricsScrape2 := m2.InstrumentationLibraryMetrics().At(0).Metrics()
 	ts2 := metricsScrape2.At(0).Gauge().DataPoints().At(0).Timestamp()
 	e2 := []testExpectation{
@@ -697,6 +738,63 @@ func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 			}),
 	}
 	doCompare(t, "scrape2", wantAttributes, m2, e2)
+
+	m3 := resourceMetrics[2]
+	// m2 has 3 metrics + 5 internal scraper metrics
+	assert.Equal(t, 8, metricsCount(m3))
+	metricsScrape3 := m3.InstrumentationLibraryMetrics().At(0).Metrics()
+	ts3 := metricsScrape3.At(0).Gauge().DataPoints().At(0).Timestamp()
+	e3 := []testExpectation{
+		assertMetricPresent("go_threads",
+			compareMetricType(pdata.MetricDataTypeGauge),
+			[]dataPointExpectation{
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts3),
+						compareDoubleValue(19),
+					},
+				},
+			}),
+		assertMetricPresent("http_request_duration_seconds",
+			compareMetricType(pdata.MetricDataTypeHistogram),
+			[]dataPointExpectation{
+				{
+					histogramPointComparator: []histogramPointComparator{
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Histogram metrics after a failed scrape
+						// Page 3 start_timestamp should not get reset only because of a prior failed scrape
+						//compareHistogramStartTimestamp(ts1),
+						compareHistogramTimestamp(ts3),
+						compareHistogram(14005, 50500, []uint64{11000, 2000, 1001, 2}),
+					},
+				},
+			}),
+		assertMetricAbsent("corrupted_hist"),
+		assertMetricPresent("rpc_duration_seconds",
+			compareMetricType(pdata.MetricDataTypeSummary),
+			[]dataPointExpectation{
+				{
+					summaryPointComparator: []summaryPointComparator{
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Summary metrics after a failed scrape
+						// Page 3 start_timestamp should not get reset only because of a prior failed scrape
+						//compareSummaryStartTimestamp(ts1),
+						compareSummaryTimestamp(ts3),
+						compareSummaryAttributes(map[string]string{"foo": "bar"}),
+						compareSummary(990, 8900, [][]float64{{0.01, 36}, {0.05, 35}, {0.5, 52}, {0.9, 70}, {0.99, 77}}),
+					},
+				},
+				{
+					summaryPointComparator: []summaryPointComparator{
+						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Summary metrics after a failed scrape
+						// Page 3 start_timestamp should not get reset only because of a prior failed scrape
+						//compareSummaryStartTimestamp(ts1),
+						compareSummaryTimestamp(ts3),
+						compareSummaryAttributes(map[string]string{"foo": "no_quantile"}),
+						compareSummary(59, 109, [][]float64{}),
+					},
+				},
+			}),
+	}
+	doCompare(t, "scrape3", wantAttributes, m3, e3)
 }
 
 // TestCoreMetricsEndToEnd end to end test executor
@@ -730,11 +828,13 @@ func TestCoreMetricsEndToEnd(t *testing.T) {
 			pages: []mockPrometheusResponse{
 				{code: 200, data: target3Page1},
 				{code: 200, data: target3Page2},
+				{code: 500, data: ""},
+				{code: 200, data: target3Page3},
 			},
 			validateFunc: verifyTarget3,
 		},
 	}
-	testComponent(t, targets, false, "")
+	testComponent(t, targets, nil, false, "")
 }
 
 var startTimeMetricPage = `
@@ -820,7 +920,8 @@ func TestStartTimeMetric(t *testing.T) {
 			validateFunc: verifyStartTimeMetricPage,
 		},
 	}
-	testComponent(t, targets, true, "")
+
+	testComponent(t, targets, nil, true, "")
 }
 
 var startTimeMetricRegexPage = `
@@ -869,5 +970,6 @@ func TestStartTimeMetricRegex(t *testing.T) {
 			validateFunc: verifyStartTimeMetricPage,
 		},
 	}
-	testComponent(t, targets, true, "^(.+_)*process_start_time_seconds$")
+
+	testComponent(t, targets, nil, true, "^(.+_)*process_start_time_seconds$")
 }

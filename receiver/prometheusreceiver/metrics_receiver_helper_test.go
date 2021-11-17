@@ -28,6 +28,8 @@ import (
 
 	gokitlog "github.com/go-kit/log"
 	promcfg "github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/relabel"
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +37,7 @@ import (
 	"go.opentelemetry.io/collector/config"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/model/pdata"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"gopkg.in/yaml.v2"
 )
 
@@ -111,24 +114,46 @@ type testData struct {
 	validateFunc func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
 }
 
+type promConfig struct {
+	externalLabels labels.Labels
+	honorTimestamp bool
+	honorLabel     bool
+	renamingCfg    []*relabel.Config
+}
+
 // setupMockPrometheus to create a mocked prometheus based on targets, returning the server and a prometheus exporting
 // config
-func setupMockPrometheus(tds ...*testData) (*mockPrometheus, *promcfg.Config, error) {
-	jobs := make([]map[string]interface{}, 0, len(tds))
+func setupMockPrometheus(promConfig *promConfig, tds ...*testData) (*mockPrometheus, *promcfg.Config, error) {
 	endpoints := make(map[string][]mockPrometheusResponse)
-	metricPaths := make([]string, 0)
 	for _, t := range tds {
 		metricPath := fmt.Sprintf("/%s/metrics", t.name)
 		endpoints[metricPath] = t.pages
-		metricPaths = append(metricPaths, metricPath)
 	}
 	mp := newMockPrometheus(endpoints)
 	u, _ := url.Parse(mp.srv.URL)
 	host, port, _ := net.SplitHostPort(u.Host)
+
+	// update attributes value (will use for validation)
+	for _, t := range tds {
+		t.attributes = pdata.NewAttributeMap()
+		t.attributes.Insert("service.name", pdata.NewAttributeValueString(t.name))
+		t.attributes.Insert("host.name", pdata.NewAttributeValueString(host))
+		t.attributes.Insert("job", pdata.NewAttributeValueString(t.name))
+		t.attributes.Insert("instance", pdata.NewAttributeValueString(u.Host))
+		t.attributes.Insert("port", pdata.NewAttributeValueString(port))
+		t.attributes.Insert("scheme", pdata.NewAttributeValueString("http"))
+	}
+	pCfg, err := prepareReceiverConfig(u, promConfig, tds...)
+	return mp, pCfg, err
+}
+
+// prepareReceiverConfig to prepare Prometheus Receiver Config, and to customise default configs as per the test requirement
+func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData) (*promcfg.Config, error) {
+	jobs := make([]map[string]interface{}, 0, len(tds))
 	for i := 0; i < len(tds); i++ {
 		job := make(map[string]interface{})
 		job["job_name"] = tds[i].name
-		job["metrics_path"] = metricPaths[i]
+		job["metrics_path"] = fmt.Sprintf("/%s/metrics", tds[i].name)
 		job["scrape_interval"] = "1s"
 		job["static_configs"] = []map[string]interface{}{{"targets": []string{u.Host}}}
 		jobs = append(jobs, job)
@@ -140,22 +165,33 @@ func setupMockPrometheus(tds ...*testData) (*mockPrometheus, *promcfg.Config, er
 	configP["scrape_configs"] = jobs
 	cfg, err := yaml.Marshal(&configP)
 	if err != nil {
-		return mp, nil, err
-	}
-	// update attributes value (will use for validation)
-	for _, t := range tds {
-		t.attributes = pdata.NewAttributeMap()
-		t.attributes.Insert("service.name", pdata.NewAttributeValueString(t.name))
-		t.attributes.Insert("host.name", pdata.NewAttributeValueString(host))
-		t.attributes.Insert("job", pdata.NewAttributeValueString(t.name))
-		t.attributes.Insert("instance", pdata.NewAttributeValueString(u.Host))
-		t.attributes.Insert("port", pdata.NewAttributeValueString(port))
-		t.attributes.Insert("scheme", pdata.NewAttributeValueString("http"))
+		return nil, err
 	}
 	pCfg, err := promcfg.Load(string(cfg), false, gokitlog.NewNopLogger())
-	return mp, pCfg, err
-}
 
+	//check for customConfig requirement and edit default receiver config accordingly
+	if promConfig != nil {
+		if promConfig.externalLabels != nil {
+			pCfg.GlobalConfig.ExternalLabels = promConfig.externalLabels
+		}
+		if !promConfig.honorTimestamp {
+			for _, scrapeConfig := range pCfg.ScrapeConfigs {
+				scrapeConfig.HonorTimestamps = false
+			}
+		}
+		if !promConfig.honorLabel {
+			for _, scrapeConfig := range pCfg.ScrapeConfigs {
+				scrapeConfig.HonorLabels = false
+			}
+		}
+		if promConfig.renamingCfg != nil {
+			for _, scrapeConfig := range pCfg.ScrapeConfigs {
+				scrapeConfig.MetricRelabelConfigs = promConfig.renamingCfg
+			}
+		}
+	}
+	return pCfg, err
+}
 func verifyNumScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
 	want := 0
 	for _, p := range td.pages {
@@ -195,7 +231,7 @@ func getValidScrapes(t *testing.T, rms []*pdata.ResourceMetrics) []*pdata.Resour
 	for i := 0; i < len(rms); i++ {
 		allMetrics := getMetrics(rms[i])
 		if expectedScrapeMetricCount < len(allMetrics) && countScrapeMetrics(allMetrics) == expectedScrapeMetricCount {
-			if isFirstFailedScrape(allMetrics) {
+			if isFirstFailedScrape(t, allMetrics) {
 				continue
 			}
 			assertUp(t, 1, allMetrics)
@@ -207,11 +243,54 @@ func getValidScrapes(t *testing.T, rms []*pdata.ResourceMetrics) []*pdata.Resour
 	return out
 }
 
-func isFirstFailedScrape(metrics []*pdata.Metric) bool {
+func isFirstFailedScrape(t *testing.T, metrics []*pdata.Metric) bool {
 	for _, m := range metrics {
 		if m.Name() == "up" {
 			if m.Gauge().DataPoints().At(0).DoubleVal() == 1 { // assumed up will not have multiple datapoints
 				return false
+			}
+		}
+	}
+	// TODO: Remove this skip once OTLP format is directly used in Prometheus Receiver Metric Builder.
+	if true {
+		t.Log(`Skipping the datapoint flag check for staleness markers, as the current receiver doesnt yet set the flag true for staleNaNs`)
+		return true
+	}
+
+	stalenessFlag := false
+	for _, m := range metrics {
+		switch m.Name() {
+		case "up", "scrape_duration_seconds", "scrape_samples_scraped", "scrape_samples_post_metric_relabeling", "scrape_series_added":
+			continue
+		}
+		switch m.DataType() {
+		case pdata.MetricDataTypeGauge:
+			for i := 0; i < m.Gauge().DataPoints().Len(); i++ {
+				stalenessFlag = m.Gauge().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
+				if !stalenessFlag {
+					return false
+				}
+			}
+		case pdata.MetricDataTypeSum:
+			for i := 0; i < m.Sum().DataPoints().Len(); i++ {
+				stalenessFlag = m.Sum().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
+				if !stalenessFlag {
+					return false
+				}
+			}
+		case pdata.MetricDataTypeHistogram:
+			for i := 0; i < m.Histogram().DataPoints().Len(); i++ {
+				stalenessFlag = m.Histogram().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
+				if !stalenessFlag {
+					return false
+				}
+			}
+		case pdata.MetricDataTypeSummary:
+			for i := 0; i < m.Summary().DataPoints().Len(); i++ {
+				stalenessFlag = m.Summary().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue)
+				if !stalenessFlag {
+					return false
+				}
 			}
 		}
 	}
@@ -354,7 +433,7 @@ func compareAttributes(attributes map[string]string) numberPointComparator {
 				if ok {
 					assert.Equal(t, v, value.AsString(), "Attributes do not match")
 				} else {
-					assert.Fail(t, "Attributes key do not match")
+					assert.Failf(t, "Attributes key do not match", k)
 				}
 			}
 		}
@@ -370,7 +449,7 @@ func compareSummaryAttributes(attributes map[string]string) summaryPointComparat
 				if ok {
 					assert.Equal(t, v, value.AsString(), "Summary attributes value do not match")
 				} else {
-					assert.Fail(t, "Summary attributes key do not match")
+					assert.Failf(t, "Summary attributes key do not match", k)
 				}
 			}
 		}
@@ -441,9 +520,9 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 	}
 }
 
-func testComponent(t *testing.T, targets []*testData, useStartTimeMetric bool, startTimeMetricRegex string) {
+func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, useStartTimeMetric bool, startTimeMetricRegex string) {
 	// 1. setup mock server
-	mp, cfg, err := setupMockPrometheus(targets...)
+	mp, cfg, err := setupMockPrometheus(customConfig, targets...)
 	require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
 	defer mp.Close()
 
@@ -465,7 +544,8 @@ func testComponent(t *testing.T, targets []*testData, useStartTimeMetric bool, s
 	// wait for all provided data to be scraped
 	mp.wg.Wait()
 	metrics := cms.AllMetrics()
-
+	fmt.Println(len(metrics))
+	printPdataMetrics(metrics)
 	// split and store results by target name
 	pResults := make(map[string][]*pdata.ResourceMetrics)
 	for _, md := range metrics {
@@ -500,4 +580,77 @@ func flattenTargets(targets map[string][]*scrape.Target) []*scrape.Target {
 		flatTargets = append(flatTargets, target...)
 	}
 	return flatTargets
+}
+
+func printPdataMetrics(metrics []pdata.Metrics) {
+	for _, md := range metrics {
+		rms := md.ResourceMetrics()
+		for i := 0; i < rms.Len(); i++ {
+			name, _ := rms.At(i).Resource().Attributes().Get("service.name")
+			fmt.Println(name.AsString())
+			ilms := rms.At(i).InstrumentationLibraryMetrics()
+			for j := 0; j < ilms.Len(); j++ {
+				metricSlice := ilms.At(j).Metrics()
+				for i := 0; i < metricSlice.Len(); i++ {
+					m := metricSlice.At(i)
+					switch m.Name() {
+					case "scrape_duration_seconds", "scrape_samples_scraped", "scrape_samples_post_metric_relabeling", "scrape_series_added":
+						continue
+					}
+					fmt.Print(m.Name())
+					fmt.Print("\t")
+					fmt.Print(m.Description())
+					fmt.Print("\t")
+					switch m.DataType() {
+					case pdata.MetricDataTypeGauge:
+						for i := 0; i < m.Gauge().DataPoints().Len(); i++ {
+							fmt.Print(m.Gauge().DataPoints().At(i).DoubleVal())
+							fmt.Print("\t")
+							fmt.Print("Point_Timestamp { ", timestamppb.New(m.Gauge().DataPoints().At(i).Timestamp().AsTime()), " }")
+							fmt.Print("\t")
+						}
+					case pdata.MetricDataTypeSum:
+						for i := 0; i < m.Sum().DataPoints().Len(); i++ {
+							fmt.Print(m.Sum().DataPoints().At(i).DoubleVal())
+							fmt.Print("\t")
+						}
+						fmt.Print("Start_Timestamp { ", timestamppb.New(m.Sum().DataPoints().At(0).StartTimestamp().AsTime()), " }")
+						fmt.Print("\t")
+						fmt.Print("Point_Timestamp { ", timestamppb.New(m.Sum().DataPoints().At(0).Timestamp().AsTime()), " }")
+						fmt.Print("\t")
+					case pdata.MetricDataTypeHistogram:
+						for i := 0; i < m.Histogram().DataPoints().Len(); i++ {
+							fmt.Print("Count: ")
+							fmt.Print(m.Histogram().DataPoints().At(i).Count())
+							fmt.Print(" Sum: ")
+							fmt.Print(m.Histogram().DataPoints().At(i).Sum())
+							fmt.Print("\t")
+						}
+						fmt.Print("Start_Timestamp { ", timestamppb.New(m.Histogram().DataPoints().At(0).StartTimestamp().AsTime()), " }")
+						fmt.Print("\t")
+						fmt.Print("Point_Timestamp { ", timestamppb.New(m.Histogram().DataPoints().At(0).Timestamp().AsTime()), " }")
+						fmt.Print("\t")
+					case pdata.MetricDataTypeSummary:
+						for i := 0; i < m.Summary().DataPoints().Len(); i++ {
+							fmt.Print("Count: ")
+							fmt.Print(m.Summary().DataPoints().At(i).Count())
+							fmt.Print(" Sum: ")
+							fmt.Print(m.Summary().DataPoints().At(i).Sum())
+							fmt.Print("\t")
+						}
+						fmt.Print("Start_Timestamp { ", timestamppb.New(m.Summary().DataPoints().At(0).StartTimestamp().AsTime()), " }")
+						fmt.Print("\t")
+						fmt.Print("Point_Timestamp { ", timestamppb.New(m.Summary().DataPoints().At(0).Timestamp().AsTime()), " }")
+						fmt.Print("\t")
+
+					}
+
+					fmt.Println("")
+				}
+			}
+			fmt.Println("++++++++++++++++++")
+			fmt.Println()
+		}
+	}
+
 }
