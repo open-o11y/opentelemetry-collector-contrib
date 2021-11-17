@@ -543,7 +543,6 @@ func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, 
 	// wait for all provided data to be scraped
 	mp.wg.Wait()
 	metrics := cms.AllMetrics()
-	fmt.Println(len(metrics))
 	// split and store results by target name
 	pResults := make(map[string][]*pdata.ResourceMetrics)
 	for _, md := range metrics {
