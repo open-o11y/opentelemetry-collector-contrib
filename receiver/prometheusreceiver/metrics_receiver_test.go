@@ -27,7 +27,6 @@ import (
 
 // target1 has one gauge, two counts of a same family, one histogram and one summary. We are expecting the both
 // successful scrapes will produce all metrics using the first scrape's timestamp as start time.
-
 var target1Page1 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
@@ -63,10 +62,12 @@ var target1Page2 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
 go_threads 18
+
 # HELP http_requests_total The total number of HTTP requests.
 # TYPE http_requests_total counter
 http_requests_total{method="post",code="200"} 199
 http_requests_total{method="post",code="400"} 12
+
 # HELP http_request_duration_seconds A histogram of the request duration.
 # TYPE http_request_duration_seconds histogram
 http_request_duration_seconds_bucket{le="0.05"} 1100
@@ -75,6 +76,7 @@ http_request_duration_seconds_bucket{le="1"} 2100
 http_request_duration_seconds_bucket{le="+Inf"} 2600
 http_request_duration_seconds_sum 5050
 http_request_duration_seconds_count 2600
+
 # HELP rpc_duration_seconds A summary of the RPC duration in seconds.
 # TYPE rpc_duration_seconds summary
 rpc_duration_seconds{quantile="0.01"} 1
@@ -219,7 +221,6 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 // target2 is going to have 5 pages, and there's a newly added item on the 2nd page.
 // with the 4th page, we are simulating a reset (values smaller than previous), start times should be from
 // this run for the 4th and 5th scrapes.
-
 var target2Page1 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
