@@ -178,9 +178,9 @@ func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData)
 				scrapeConfig.HonorTimestamps = false
 			}
 		}
-		if !promConfig.honorLabel {
+		if promConfig.honorLabel {
 			for _, scrapeConfig := range pCfg.ScrapeConfigs {
-				scrapeConfig.HonorLabels = false
+				scrapeConfig.HonorLabels = true
 			}
 		}
 		if promConfig.renamingCfg != nil {

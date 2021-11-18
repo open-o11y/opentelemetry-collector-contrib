@@ -72,20 +72,20 @@ http_requests_total{method="post",code="400"} 3
 
 # HELP http_request_duration_seconds A histogram of the request duration.
 # TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{le="0.05"} 1100
-http_request_duration_seconds_bucket{le="0.5"} 1600
-http_request_duration_seconds_bucket{le="1"} 2100
-http_request_duration_seconds_bucket{le="+Inf"} 2600
+http_request_duration_seconds_bucket{le="0.05"} 900
+http_request_duration_seconds_bucket{le="0.5"} 1400
+http_request_duration_seconds_bucket{le="1"} 1900
+http_request_duration_seconds_bucket{le="+Inf"} 2400
 http_request_duration_seconds_sum 4950
-http_request_duration_seconds_count 2600
+http_request_duration_seconds_count 2400
 
 # HELP rpc_duration_seconds A summary of the RPC duration in seconds.
 # TYPE rpc_duration_seconds summary
 rpc_duration_seconds{quantile="0.01"} 1
 rpc_duration_seconds{quantile="0.9"} 6
 rpc_duration_seconds{quantile="0.99"} 8
-rpc_duration_seconds_sum 5002
-rpc_duration_seconds_count 1000
+rpc_duration_seconds_sum 4980
+rpc_duration_seconds_count 900
 `
 
 func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
@@ -203,7 +203,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Histogram metrics after a failed scrape
 						//compareHistogramStartTimestamp(ts2),
 						compareHistogramTimestamp(ts2),
-						compareHistogram(2600, 4950, []uint64{1100, 500, 500, 500}),
+						compareHistogram(2400, 4950, []uint64{900, 500, 500, 500}),
 					},
 				},
 			}),
@@ -215,7 +215,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 						// TODO: #6360 Prometheus Receiver Issue- start_timestamp are incorrect for Summary metrics after a failed scrape
 						//compareSummaryStartTimestamp(ts2),
 						compareSummaryTimestamp(ts2),
-						compareSummary(1000, 5002, [][]float64{{0.01, 1}, {0.9, 6}, {0.99, 8}}),
+						compareSummary(900, 4980, [][]float64{{0.01, 1}, {0.9, 6}, {0.99, 8}}),
 					},
 				},
 			}),
