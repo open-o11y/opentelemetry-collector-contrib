@@ -34,7 +34,8 @@ redis_connected_clients{name="rough-snowflake-web",port="6380"} 10.0
 redis_connected_clients{name="rough-snowflake-web",port="6381"} 12.0
 `
 
-// TestUntypedMetrics validates the pass through of untyped metrics through metric receiver and the conversion of untyped to gauge double
+// TestUntypedMetrics validates the pass through of untyped metrics
+// through metric receiver and the conversion of untyped to gauge double
 func TestUntypedMetrics(t *testing.T) {
 	targets := []*testData{
 		{
