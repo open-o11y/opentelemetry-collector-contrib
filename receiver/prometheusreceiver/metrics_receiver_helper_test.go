@@ -118,6 +118,7 @@ type promConfig struct {
 	honorTimestamp bool
 	honorLabel     bool
 	renamingCfg    []*relabel.Config
+	labelLimit     uint
 }
 
 // setupMockPrometheus to create a mocked prometheus based on targets, returning the server and a prometheus exporting
@@ -146,7 +147,7 @@ func setupMockPrometheus(promConfig *promConfig, tds ...*testData) (*mockPrometh
 	return mp, pCfg, err
 }
 
-// prepareReceiverConfig to prepare Prometheus Receiver Config, and to customise default configs as per the test requirement
+// prepareReceiverConfig to prepare Prometheus Receiver Config, and to customize default configs as per the test requirement
 func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData) (*promcfg.Config, error) {
 	jobs := make([]map[string]interface{}, 0, len(tds))
 	for i := 0; i < len(tds); i++ {
@@ -181,6 +182,11 @@ func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData)
 		if promConfig.honorLabel {
 			for _, scrapeConfig := range pCfg.ScrapeConfigs {
 				scrapeConfig.HonorLabels = true
+			}
+		}
+		if promConfig.labelLimit > 0 {
+			for _, scrapeConfig := range pCfg.ScrapeConfigs {
+				scrapeConfig.LabelLimit = promConfig.labelLimit
 			}
 		}
 		if promConfig.renamingCfg != nil {
@@ -539,20 +545,7 @@ func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, 
 	mp.wg.Wait()
 	metrics := cms.AllMetrics()
 	// split and store results by target name
-	pResults := make(map[string][]*pdata.ResourceMetrics)
-	for _, md := range metrics {
-		rms := md.ResourceMetrics()
-		for i := 0; i < rms.Len(); i++ {
-			name, _ := rms.At(i).Resource().Attributes().Get("service.name")
-			pResult, ok := pResults[name.AsString()]
-			if !ok {
-				pResult = make([]*pdata.ResourceMetrics, 0)
-			}
-			rm := rms.At(i)
-			pResults[name.AsString()] = append(pResult, &rm)
-		}
-	}
-
+	pResults := splitMetricsByTarget(metrics)
 	lres, lep := len(pResults), len(mp.endpoints)
 	assert.Equalf(t, lep, lres, "want %d targets, but got %v\n", lep, lres)
 
@@ -572,4 +565,21 @@ func flattenTargets(targets map[string][]*scrape.Target) []*scrape.Target {
 		flatTargets = append(flatTargets, target...)
 	}
 	return flatTargets
+}
+
+func splitMetricsByTarget(metrics []pdata.Metrics) map[string][]*pdata.ResourceMetrics {
+	pResults := make(map[string][]*pdata.ResourceMetrics)
+	for _, md := range metrics {
+		rms := md.ResourceMetrics()
+		for i := 0; i < rms.Len(); i++ {
+			name, _ := rms.At(i).Resource().Attributes().Get("service.name")
+			pResult, ok := pResults[name.AsString()]
+			if !ok {
+				pResult = make([]*pdata.ResourceMetrics, 0)
+			}
+			rm := rms.At(i)
+			pResults[name.AsString()] = append(pResult, &rm)
+		}
+	}
+	return pResults
 }
