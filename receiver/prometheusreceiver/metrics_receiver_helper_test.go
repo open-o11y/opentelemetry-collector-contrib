@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/prometheus/prometheus/pkg/value"
 
 	gokitlog "github.com/go-kit/log"
 	promcfg "github.com/prometheus/prometheus/config"
@@ -529,6 +532,13 @@ func compareDoubleValue(doubleVal float64) numberPointComparator {
 	}
 }
 
+func assertNormalNan() numberPointComparator {
+	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
+		assert.True(t, math.Float64bits(numberDataPoint.DoubleVal()) == value.NormalNaN,
+			"Metric double value is not normalNaN as expected")
+	}
+}
+
 func compareHistogram(count uint64, sum float64, buckets []uint64) histogramPointComparator {
 	return func(t *testing.T, histogramDataPoint *pdata.HistogramDataPoint) {
 		assert.Equal(t, count, histogramDataPoint.Count(), "Histogram count value does not match")
@@ -544,8 +554,15 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 		req := assert.Equal(t, len(quantiles), summaryDataPoint.QuantileValues().Len())
 		if req {
 			for i := 0; i < summaryDataPoint.QuantileValues().Len(); i++ {
-				assert.Equal(t, quantiles[i][0], summaryDataPoint.QuantileValues().At(i).Quantile(), "Summary quantile do not match")
-				assert.Equal(t, quantiles[i][1], summaryDataPoint.QuantileValues().At(i).Value(), "Summary quantile values do not match")
+				assert.Equal(t, quantiles[i][0], summaryDataPoint.QuantileValues().At(i).Quantile(),
+					"Summary quantile do not match")
+				if math.Float64bits(quantiles[i][1]) == value.NormalNaN {
+					assert.True(t, math.Float64bits(summaryDataPoint.QuantileValues().At(i).Value()) == value.NormalNaN,
+						"Summary quantile value is not normalNaN as expected")
+				} else {
+					assert.Equal(t, quantiles[i][1], summaryDataPoint.QuantileValues().At(i).Value(),
+						"Summary quantile values do not match")
+				}
 			}
 		}
 	}

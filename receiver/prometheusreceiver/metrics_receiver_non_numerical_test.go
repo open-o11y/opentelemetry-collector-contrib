@@ -17,8 +17,10 @@ package prometheusreceiver
 import (
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 
+	"github.com/prometheus/prometheus/pkg/value"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/model/pdata"
@@ -177,7 +179,7 @@ func verifyFailedScrape(t *testing.T, td *testData, resourceMetric *pdata.Resour
 	}
 	metrics1 := resourceMetric.InstrumentationLibraryMetrics().At(0).Metrics()
 
-	// for failed scrapes, the order of metrics is randomised,
+	// for failed scrapes, the order of metrics is random,
 	// and it is not necessary to always have Gauge as first metric
 	ts1, err := getPointTimeStamp(metrics1)
 	require.Nilf(t, err, "Failed to get point timestamp: %v", err)
@@ -251,4 +253,73 @@ func getPointTimeStamp(metrics1 pdata.MetricSlice) (pdata.Timestamp, error) {
 		return metrics1.At(0).Summary().DataPoints().At(0).Timestamp(), nil
 	}
 	return 0, errors.New("unknown data type")
+}
+
+// Prometheus gauge metric can be set to NaN, a use case could be when value 0 is not representable
+// Prometheus summary metric quantiles can have NaN after getting expired
+var normalNaNsPage1 = `
+# HELP go_threads Number of OS threads created
+# TYPE go_threads gauge
+go_threads NaN
+
+# HELP rpc_duration_seconds A summary of the RPC duration in seconds.
+# TYPE rpc_duration_seconds summary
+rpc_duration_seconds{quantile="0.01"} NaN
+rpc_duration_seconds{quantile="0.9"} NaN
+rpc_duration_seconds{quantile="0.99"} NaN
+rpc_duration_seconds_sum 5000
+rpc_duration_seconds_count 1000
+`
+
+// TestNormalNaNs validates the output of receiver when testdata contains NaN values
+func TestNormalNaNs(t *testing.T) {
+	// 1. setup input data
+	targets := []*testData{
+		{
+			name: "target1",
+			pages: []mockPrometheusResponse{
+				{code: 200, data: normalNaNsPage1},
+			},
+			validateFunc: verifyNormalNaNs,
+		},
+	}
+	testComponent(t, targets, nil, false, "", false)
+}
+
+func verifyNormalNaNs(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
+	verifyValidNumScrapeResults(t, td, resourceMetrics)
+	m1 := resourceMetrics[0]
+
+	// m1 has 2 metrics + 5 internal scraper metrics
+	assert.Equal(t, 7, metricsCount(m1))
+
+	wantAttributes := td.attributes
+
+	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
+	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
+	e1 := []testExpectation{
+		assertMetricPresent("go_threads",
+			compareMetricType(pdata.MetricDataTypeGauge),
+			[]dataPointExpectation{
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						assertNormalNan(),
+					},
+				},
+			}),
+		assertMetricPresent("rpc_duration_seconds",
+			compareMetricType(pdata.MetricDataTypeSummary),
+			[]dataPointExpectation{
+				{
+					summaryPointComparator: []summaryPointComparator{
+						compareSummaryStartTimestamp(ts1),
+						compareSummaryTimestamp(ts1),
+						compareSummary(1000, 5000, [][]float64{{0.01, math.Float64frombits(value.NormalNaN)},
+							{0.9, math.Float64frombits(value.NormalNaN)}, {0.99, math.Float64frombits(value.NormalNaN)}}),
+					},
+				},
+			}),
+	}
+	doCompare(t, "scrape-NormalNaN-1", wantAttributes, m1, e1)
 }
