@@ -323,3 +323,65 @@ func verifyNormalNaNs(t *testing.T, td *testData, resourceMetrics []*pdata.Resou
 	}
 	doCompare(t, "scrape-NormalNaN-1", wantAttributes, m1, e1)
 }
+
+var infPage1 = `
+# HELP go_threads_max Number of OS threads created
+# TYPE go_threads_max gauge
+go_threads_max{method="post",code="200"} +Inf
+
+# HELP go_threads_min Number of OS threads created
+# TYPE go_threads_min gauge
+go_threads_min{method="post",code="400"} -Inf
+`
+
+func TestInfValues(t *testing.T) {
+	// 1. setup input data
+	targets := []*testData{
+		{
+			name: "target1",
+			pages: []mockPrometheusResponse{
+				{code: 200, data: infPage1},
+			},
+			validateFunc: verifyInfValues,
+		},
+	}
+	testComponent(t, targets, nil, false, "", false)
+}
+
+func verifyInfValues(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
+	verifyValidNumScrapeResults(t, td, resourceMetrics)
+	m1 := resourceMetrics[0]
+
+	// m1 has 2 metrics + 5 internal scraper metrics
+	assert.Equal(t, 7, metricsCount(m1))
+
+	wantAttributes := td.attributes
+
+	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
+	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
+	e1 := []testExpectation{
+		assertMetricPresent("go_threads_max",
+			compareMetricType(pdata.MetricDataTypeGauge),
+			[]dataPointExpectation{
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						compareAttributes(map[string]string{"method": "post", "code": "200"}),
+						compareDoubleValue(math.Inf(1)),
+					},
+				},
+			}),
+		assertMetricPresent("go_threads_min",
+			compareMetricType(pdata.MetricDataTypeGauge),
+			[]dataPointExpectation{
+				{
+					numberPointComparator: []numberPointComparator{
+						compareTimestamp(ts1),
+						compareAttributes(map[string]string{"method": "post", "code": "400"}),
+						compareDoubleValue(math.Inf(-1)),
+					},
+				},
+			}),
+	}
+	doCompare(t, "scrape-InfValues-1", wantAttributes, m1, e1)
+}
