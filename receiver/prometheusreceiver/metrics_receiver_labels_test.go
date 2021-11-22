@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/prometheus/prometheus/pkg/labels"
-	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/model/pdata"
 )
 
@@ -78,8 +77,6 @@ test_gauge0{label1="value1",label2="value2"} 10
 func verifyLabelLimitTarget1(t *testing.T, td *testData, rms []*pdata.ResourceMetrics) {
 	//each sample in the scraped metrics is within the configured label_limit, scrape should be successful
 	verifyNumScrapeResults(t, td, rms)
-	require.Greater(t, len(rms), 0, "At least one resource metric should be present")
-
 	want := td.attributes
 	metrics1 := rms[0].InstrumentationLibraryMetrics().At(0).Metrics()
 	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
