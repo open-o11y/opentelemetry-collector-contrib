@@ -27,7 +27,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-
 	gokitlog "github.com/go-kit/log"
 	promcfg "github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/pkg/labels"
