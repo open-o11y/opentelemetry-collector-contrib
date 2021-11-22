@@ -38,17 +38,19 @@ func TestExternalLabels(t *testing.T) {
 		},
 	}
 
-	mp, cfg, err := setupMockPrometheus(targets...)
-	cfg.GlobalConfig.ExternalLabels = labels.FromStrings("key", "value")
-	require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
-
-	testComponentCustomConfig(t, targets, mp, cfg)
+	pConfig := &promConfig{
+		externalLabels: []labels.Label{
+			{
+				Name:  "key",
+				Value: "value",
+			},
+		},
+	}
+	testComponent(t, targets, pConfig, false, "")
 }
 
 func verifyExternalLabels(t *testing.T, td *testData, rms []*pdata.ResourceMetrics) {
 	verifyNumScrapeResults(t, td, rms)
-	require.Greater(t, len(rms), 0, "At least one resource metric should be present")
-
 	wantAttributes := td.attributes
 	metrics1 := rms[0].InstrumentationLibraryMetrics().At(0).Metrics()
 	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
@@ -130,13 +132,9 @@ func TestLabelLimitConfig(t *testing.T) {
 		},
 	}
 
-	mp, cfg, err := setupMockPrometheus(targets...)
-	require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
-
 	// set label limit in scrape_config
-	for _, scrapeCfg := range cfg.ScrapeConfigs {
-		scrapeCfg.LabelLimit = 5
+	pConfig := &promConfig{
+		labelLimit: 5,
 	}
-
-	testComponentCustomConfig(t, targets, mp, cfg)
+	testComponent(t, targets, pConfig, false, "")
 }
