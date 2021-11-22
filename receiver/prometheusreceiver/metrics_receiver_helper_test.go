@@ -197,7 +197,7 @@ func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData)
 	}
 	return pCfg, err
 }
-func verifyNumScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
+func verifyValidNumScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
 	want := 0
 	for _, p := range td.pages {
 		if p.code == 200 {
@@ -205,6 +205,16 @@ func verifyNumScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata
 		}
 	}
 	require.Equal(t, want, len(resourceMetrics), "want %d valid scrapes, but got %d", want, len(resourceMetrics))
+}
+
+func verifyTotalNumScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
+	want := 0
+	for _, p := range td.pages {
+		if p.code == 200 || p.code == 500 {
+			want++
+		}
+	}
+	require.Equal(t, want, len(resourceMetrics), "want %d total scrapes, but got %d", want, len(resourceMetrics))
 }
 
 func getMetrics(rm *pdata.ResourceMetrics) []*pdata.Metric {
@@ -456,6 +466,27 @@ func compareSummaryAttributes(attributes map[string]string) summaryPointComparat
 	}
 }
 
+func assertNumberPointFlagNoRecordedValue() numberPointComparator {
+	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
+		assert.True(t, numberDataPoint.Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue),
+			"Datapoint flag for staleness marker not found as expected")
+	}
+}
+
+func assertHistogramPointFlagNoRecordedValue() histogramPointComparator {
+	return func(t *testing.T, histogramDataPoint *pdata.HistogramDataPoint) {
+		assert.True(t, histogramDataPoint.Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue),
+			"Datapoint flag for staleness marker not found as expected")
+	}
+}
+
+func assertSummaryPointFlagNoRecordedValue() summaryPointComparator {
+	return func(t *testing.T, summaryDataPoint *pdata.SummaryDataPoint) {
+		assert.True(t, summaryDataPoint.Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue),
+			"Datapoint flag for staleness marker not found as expected")
+	}
+}
+
 func compareStartTimestamp(startTimeStamp pdata.Timestamp) numberPointComparator {
 	return func(t *testing.T, numberDataPoint *pdata.NumberDataPoint) {
 		assert.Equal(t, startTimeStamp.String(), numberDataPoint.StartTimestamp().String(), "Start-Timestamp does not match")
@@ -520,7 +551,7 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 	}
 }
 
-func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, useStartTimeMetric bool, startTimeMetricRegex string) {
+func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, useStartTimeMetric bool, startTimeMetricRegex string, skipValidScrapes bool) {
 	// 1. setup mock server
 	mp, cfg, err := setupMockPrometheus(customConfig, targets...)
 	require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
@@ -552,8 +583,13 @@ func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, 
 	// loop to validate outputs for each targets
 	for _, target := range targets {
 		t.Run(target.name, func(t *testing.T) {
-			validScrapes := getValidScrapes(t, pResults[target.name])
-			target.validateFunc(t, target, validScrapes)
+			var scrapes []*pdata.ResourceMetrics
+			if skipValidScrapes {
+				scrapes = pResults[target.name]
+			} else {
+				scrapes = getValidScrapes(t, pResults[target.name])
+			}
+			target.validateFunc(t, target, scrapes)
 		})
 	}
 }

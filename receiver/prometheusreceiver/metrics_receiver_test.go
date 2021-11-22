@@ -87,7 +87,7 @@ rpc_duration_seconds_count 1001
 `
 
 func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
-	verifyNumScrapeResults(t, td, resourceMetrics)
+	verifyValidNumScrapeResults(t, td, resourceMetrics)
 	m1 := resourceMetrics[0]
 
 	// m1 has 4 metrics + 5 internal scraper metrics
@@ -281,7 +281,7 @@ http_requests_total{method="post",code="500"} 5
 `
 
 func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
-	verifyNumScrapeResults(t, td, resourceMetrics)
+	verifyValidNumScrapeResults(t, td, resourceMetrics)
 	m1 := resourceMetrics[0]
 	// m1 has 2 metrics + 5 internal scraper metrics
 	assert.Equal(t, 7, metricsCount(m1))
@@ -605,7 +605,7 @@ rpc_duration_seconds_count{foo="no_quantile"} 45
 `
 
 func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
-	verifyNumScrapeResults(t, td, resourceMetrics)
+	verifyValidNumScrapeResults(t, td, resourceMetrics)
 	wantAttributes := td.attributes
 
 	m1 := resourceMetrics[0]
@@ -793,7 +793,7 @@ func TestCoreMetricsEndToEnd(t *testing.T) {
 			validateFunc: verifyTarget3,
 		},
 	}
-	testComponent(t, targets, nil, false, "")
+	testComponent(t, targets, nil, false, "", false)
 }
 
 var startTimeMetricPage = `
@@ -830,7 +830,7 @@ var startTimeMetricPageStartTimestamp = &timestamppb.Timestamp{Seconds: 400, Nan
 const numStartTimeMetricPageTimeseries = 11
 
 func verifyStartTimeMetricPage(t *testing.T, td *testData, result []*pdata.ResourceMetrics) {
-	verifyNumScrapeResults(t, td, result)
+	verifyValidNumScrapeResults(t, td, result)
 	numTimeseries := 0
 	for _, rm := range result {
 		metrics := getMetrics(rm)
@@ -880,7 +880,7 @@ func TestStartTimeMetric(t *testing.T) {
 		},
 	}
 
-	testComponent(t, targets, nil, true, "")
+	testComponent(t, targets, nil, true, "", false)
 }
 
 var startTimeMetricRegexPage = `
@@ -930,5 +930,5 @@ func TestStartTimeMetricRegex(t *testing.T) {
 		},
 	}
 
-	testComponent(t, targets, nil, true, "^(.+_)*process_start_time_seconds$")
+	testComponent(t, targets, nil, true, "^(.+_)*process_start_time_seconds$", false)
 }
