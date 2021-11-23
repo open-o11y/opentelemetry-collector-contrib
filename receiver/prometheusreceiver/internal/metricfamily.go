@@ -50,7 +50,7 @@ type metricFamily struct {
 }
 
 func newMetricFamily(metricName string, mc MetadataCache, logger *zap.Logger, intervalStartTimeMs int64) MetricFamily {
-	familyName := normalizeMetricName(metricName)
+	familyName := NormalizeMetricName(metricName)
 
 	// lookup metadata based on familyName
 	metadata, ok := mc.Metadata(familyName)
@@ -127,7 +127,7 @@ func defineInternalMetric(metricName string, metadata scrape.MetricMetadata, log
 
 func (mf *metricFamily) IsSameFamily(metricName string) bool {
 	// trim known suffix if necessary
-	familyName := normalizeMetricName(metricName)
+	familyName := NormalizeMetricName(metricName)
 	return mf.name == familyName || familyName != metricName && mf.name == metricName
 }
 

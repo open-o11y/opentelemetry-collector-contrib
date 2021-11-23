@@ -1355,7 +1355,7 @@ func Test_normalizeMetricName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := normalizeMetricName(tt.mname); got != tt.want {
+			if got := NormalizeMetricName(tt.mname); got != tt.want {
 				t.Errorf("normalizeMetricName() = %v, want %v", got, tt.want)
 			}
 		})

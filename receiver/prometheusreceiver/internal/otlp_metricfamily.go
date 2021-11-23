@@ -52,7 +52,7 @@ type metricGroupPdata struct {
 }
 
 func newMetricFamilyPdata(metricName string, mc MetadataCache, intervalStartTimeMs int64) MetricFamilyPdata {
-	familyName := normalizeMetricName(metricName)
+	familyName := NormalizeMetricName(metricName)
 
 	// lookup metadata based on familyName
 	metadata, ok := mc.Metadata(familyName)

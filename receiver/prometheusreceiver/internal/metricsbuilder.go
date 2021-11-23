@@ -59,6 +59,8 @@ type metricBuilder struct {
 	intervalStartTimeMs  int64
 	logger               *zap.Logger
 	currentMf            MetricFamily
+	metricFamilyMap      map[string]MetricFamily
+	mfOrderedList        []MetricFamily
 }
 
 // newMetricBuilder creates a MetricBuilder which is allowed to feed all the datapoints from a single prometheus
@@ -78,6 +80,8 @@ func newMetricBuilder(mc MetadataCache, useStartTimeMetric bool, startTimeMetric
 		useStartTimeMetric:   useStartTimeMetric,
 		startTimeMetricRegex: regex,
 		intervalStartTimeMs:  intervalStartTimeMs,
+		metricFamilyMap:      make(map[string]MetricFamily),
+		mfOrderedList:        make([]MetricFamily, 0),
 	}
 }
 
@@ -137,18 +141,16 @@ func (b *metricBuilder) AddDataPoint(ls labels.Labels, t int64, v float64) error
 
 	b.hasData = true
 
-	if b.currentMf != nil && !b.currentMf.IsSameFamily(metricName) {
-		m, ts, dts := b.currentMf.ToMetric()
-		b.numTimeseries += ts
-		b.droppedTimeseries += dts
-		if m != nil {
-			b.metrics = append(b.metrics, m)
+	familyName := NormalizeMetricName(metricName)
+	if b.metricFamilyMap != nil && b.metricFamilyMap[familyName] != nil {
+		b.currentMf = b.metricFamilyMap[familyName]
+	} else {
+		b.currentMf = newMetricFamily(metricName, b.mc, b.logger, b.intervalStartTimeMs)
+		b.metricFamilyMap[familyName] = b.currentMf
+		if b.mfOrderedList != nil {
+			b.mfOrderedList = append(b.mfOrderedList, b.currentMf)
 		}
-		b.currentMf = newMetricFamily(metricName, b.mc, b.logger, b.intervalStartTimeMs)
-	} else if b.currentMf == nil {
-		b.currentMf = newMetricFamily(metricName, b.mc, b.logger, b.intervalStartTimeMs)
 	}
-
 	return b.currentMf.Add(metricName, ls, t, v)
 }
 
@@ -162,14 +164,13 @@ func (b *metricBuilder) Build() ([]*metricspb.Metric, int, int, error) {
 		return nil, 0, 0, errNoDataToBuild
 	}
 
-	if b.currentMf != nil {
-		m, ts, dts := b.currentMf.ToMetric()
+	for _, v := range b.mfOrderedList {
+		m, ts, dts := v.ToMetric()
 		b.numTimeseries += ts
 		b.droppedTimeseries += dts
 		if m != nil {
 			b.metrics = append(b.metrics, m)
 		}
-		b.currentMf = nil
 	}
 
 	return b.metrics, b.numTimeseries, b.droppedTimeseries, nil
@@ -215,7 +216,7 @@ func dpgSignature(orderedKnownLabelKeys []string, ls labels.Labels) string {
 	return string(sign)
 }
 
-func normalizeMetricName(name string) string {
+func NormalizeMetricName(name string) string {
 	for _, s := range trimmableSuffixes {
 		if strings.HasSuffix(name, s) && name != s {
 			return strings.TrimSuffix(name, s)
