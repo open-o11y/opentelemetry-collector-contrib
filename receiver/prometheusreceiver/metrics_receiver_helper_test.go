@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,8 +27,6 @@ import (
 
 	gokitlog "github.com/go-kit/log"
 	promcfg "github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/pkg/labels"
-	"github.com/prometheus/prometheus/pkg/relabel"
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,11 +35,14 @@ import (
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/model/pdata"
 	"gopkg.in/yaml.v2"
+
+	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/prometheusreceiver/internal"
 )
 
 type mockPrometheusResponse struct {
-	code int
-	data string
+	code           int
+	data           string
+	useOpenMetrics bool
 }
 
 type mockPrometheus struct {
@@ -90,6 +90,9 @@ func (mp *mockPrometheus) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		rw.WriteHeader(404)
 		return
 	}
+	if pages[index].useOpenMetrics {
+		rw.Header().Set("Content-Type", "application/openmetrics-text")
+	}
 	rw.WriteHeader(pages[index].code)
 	_, _ = rw.Write([]byte(pages[index].data))
 }
@@ -107,53 +110,33 @@ var (
 )
 
 type testData struct {
-	name         string
-	pages        []mockPrometheusResponse
-	attributes   pdata.AttributeMap
-	validateFunc func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
-}
-
-type promConfig struct {
-	externalLabels labels.Labels
-	honorTimestamp bool
-	honorLabel     bool
-	renamingCfg    []*relabel.Config
-	labelLimit     uint
+	name           string
+	pages          []mockPrometheusResponse
+	attributes     pdata.AttributeMap
+	useOpenMetrics bool
+	validateFunc   func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
 }
 
 // setupMockPrometheus to create a mocked prometheus based on targets, returning the server and a prometheus exporting
 // config
-func setupMockPrometheus(promConfig *promConfig, tds ...*testData) (*mockPrometheus, *promcfg.Config, error) {
+func setupMockPrometheus(tds ...*testData) (*mockPrometheus, *promcfg.Config, error) {
+	jobs := make([]map[string]interface{}, 0, len(tds))
 	endpoints := make(map[string][]mockPrometheusResponse)
+	metricPaths := make([]string, 0)
 	for _, t := range tds {
+		for i := range t.pages {
+			t.pages[i].useOpenMetrics = t.useOpenMetrics
+		}
 		metricPath := fmt.Sprintf("/%s/metrics", t.name)
 		endpoints[metricPath] = t.pages
+		metricPaths = append(metricPaths, metricPath)
 	}
 	mp := newMockPrometheus(endpoints)
 	u, _ := url.Parse(mp.srv.URL)
-	host, port, _ := net.SplitHostPort(u.Host)
-
-	// update attributes value (will use for validation)
-	for _, t := range tds {
-		t.attributes = pdata.NewAttributeMap()
-		t.attributes.Insert("service.name", pdata.NewAttributeValueString(t.name))
-		t.attributes.Insert("host.name", pdata.NewAttributeValueString(host))
-		t.attributes.Insert("job", pdata.NewAttributeValueString(t.name))
-		t.attributes.Insert("instance", pdata.NewAttributeValueString(u.Host))
-		t.attributes.Insert("port", pdata.NewAttributeValueString(port))
-		t.attributes.Insert("scheme", pdata.NewAttributeValueString("http"))
-	}
-	pCfg, err := prepareReceiverConfig(u, promConfig, tds...)
-	return mp, pCfg, err
-}
-
-// prepareReceiverConfig to prepare Prometheus Receiver Config, and to customize default configs as per the test requirement
-func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData) (*promcfg.Config, error) {
-	jobs := make([]map[string]interface{}, 0, len(tds))
 	for i := 0; i < len(tds); i++ {
 		job := make(map[string]interface{})
 		job["job_name"] = tds[i].name
-		job["metrics_path"] = fmt.Sprintf("/%s/metrics", tds[i].name)
+		job["metrics_path"] = metricPaths[i]
 		job["scrape_interval"] = "1s"
 		job["static_configs"] = []map[string]interface{}{{"targets": []string{u.Host}}}
 		jobs = append(jobs, job)
@@ -165,38 +148,16 @@ func prepareReceiverConfig(u *url.URL, promConfig *promConfig, tds ...*testData)
 	configP["scrape_configs"] = jobs
 	cfg, err := yaml.Marshal(&configP)
 	if err != nil {
-		return nil, err
+		return mp, nil, err
+	}
+	// update attributes value (will use for validation)
+	for _, t := range tds {
+		t.attributes = internal.CreateNodeAndResourcePdata(t.name, u.Host, "http").Attributes()
 	}
 	pCfg, err := promcfg.Load(string(cfg), false, gokitlog.NewNopLogger())
-
-	//check for customConfig requirement and edit default receiver config accordingly
-	if promConfig != nil {
-		if promConfig.externalLabels != nil {
-			pCfg.GlobalConfig.ExternalLabels = promConfig.externalLabels
-		}
-		if !promConfig.honorTimestamp {
-			for _, scrapeConfig := range pCfg.ScrapeConfigs {
-				scrapeConfig.HonorTimestamps = false
-			}
-		}
-		if promConfig.honorLabel {
-			for _, scrapeConfig := range pCfg.ScrapeConfigs {
-				scrapeConfig.HonorLabels = true
-			}
-		}
-		if promConfig.labelLimit > 0 {
-			for _, scrapeConfig := range pCfg.ScrapeConfigs {
-				scrapeConfig.LabelLimit = promConfig.labelLimit
-			}
-		}
-		if promConfig.renamingCfg != nil {
-			for _, scrapeConfig := range pCfg.ScrapeConfigs {
-				scrapeConfig.MetricRelabelConfigs = promConfig.renamingCfg
-			}
-		}
-	}
-	return pCfg, err
+	return mp, pCfg, err
 }
+
 func verifyNumScrapeResults(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
 	want := 0
 	for _, p := range td.pages {
@@ -236,7 +197,7 @@ func getValidScrapes(t *testing.T, rms []*pdata.ResourceMetrics) []*pdata.Resour
 	for i := 0; i < len(rms); i++ {
 		allMetrics := getMetrics(rms[i])
 		if expectedScrapeMetricCount < len(allMetrics) && countScrapeMetrics(allMetrics) == expectedScrapeMetricCount {
-			if isFirstFailedScrape(t, allMetrics) {
+			if isFirstFailedScrape(allMetrics) {
 				continue
 			}
 			assertUp(t, 1, allMetrics)
@@ -248,49 +209,11 @@ func getValidScrapes(t *testing.T, rms []*pdata.ResourceMetrics) []*pdata.Resour
 	return out
 }
 
-func isFirstFailedScrape(t *testing.T, metrics []*pdata.Metric) bool {
+func isFirstFailedScrape(metrics []*pdata.Metric) bool {
 	for _, m := range metrics {
 		if m.Name() == "up" {
 			if m.Gauge().DataPoints().At(0).DoubleVal() == 1 { // assumed up will not have multiple datapoints
 				return false
-			}
-		}
-	}
-	// TODO: Remove this skip once OTLP format is directly used in Prometheus Receiver Metric Builder.
-	if true {
-		t.Log(`Skipping the datapoint flag check for staleness markers, as the current receiver doesnt yet set the flag true for staleNaNs`)
-		return true
-	}
-
-	for _, m := range metrics {
-		switch m.Name() {
-		case "up", "scrape_duration_seconds", "scrape_samples_scraped", "scrape_samples_post_metric_relabeling", "scrape_series_added":
-			continue
-		}
-		switch m.DataType() {
-		case pdata.MetricDataTypeGauge:
-			for i := 0; i < m.Gauge().DataPoints().Len(); i++ {
-				if !m.Gauge().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
-					return false
-				}
-			}
-		case pdata.MetricDataTypeSum:
-			for i := 0; i < m.Sum().DataPoints().Len(); i++ {
-				if !m.Sum().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
-					return false
-				}
-			}
-		case pdata.MetricDataTypeHistogram:
-			for i := 0; i < m.Histogram().DataPoints().Len(); i++ {
-				if !m.Histogram().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
-					return false
-				}
-			}
-		case pdata.MetricDataTypeSummary:
-			for i := 0; i < m.Summary().DataPoints().Len(); i++ {
-				if !m.Summary().DataPoints().At(i).Flags().HasFlag(pdata.MetricDataPointFlagNoRecordedValue) {
-					return false
-				}
 			}
 		}
 	}
@@ -359,8 +282,11 @@ func doCompare(t *testing.T, name string, want pdata.AttributeMap, got *pdata.Re
 		assert.Equal(t, expectedScrapeMetricCount, countScrapeMetricsRM(got))
 		assert.Equal(t, want.Len(), got.Resource().Attributes().Len())
 		for k, v := range want.AsRaw() {
-			value, _ := got.Resource().Attributes().Get(k)
-			assert.EqualValues(t, v, value.AsString())
+			value, ok := got.Resource().Attributes().Get(k)
+			assert.True(t, ok, "%q attribute is missing", k)
+			if ok {
+				assert.EqualValues(t, v, value.AsString())
+			}
 		}
 		for _, e := range expectations {
 			e(t, got)
@@ -433,7 +359,7 @@ func compareAttributes(attributes map[string]string) numberPointComparator {
 				if ok {
 					assert.Equal(t, v, value.AsString(), "Attributes do not match")
 				} else {
-					assert.Failf(t, "Attributes key do not match", k)
+					assert.Fail(t, "Attributes key do not match")
 				}
 			}
 		}
@@ -449,7 +375,23 @@ func compareSummaryAttributes(attributes map[string]string) summaryPointComparat
 				if ok {
 					assert.Equal(t, v, value.AsString(), "Summary attributes value do not match")
 				} else {
-					assert.Failf(t, "Summary attributes key do not match", k)
+					assert.Fail(t, "Summary attributes key do not match")
+				}
+			}
+		}
+	}
+}
+
+func compareHistogramAttributes(attributes map[string]string) histogramPointComparator {
+	return func(t *testing.T, histogramDataPoint *pdata.HistogramDataPoint) {
+		req := assert.Equal(t, len(attributes), histogramDataPoint.Attributes().Len(), "Histogram attributes length do not match")
+		if req {
+			for k, v := range attributes {
+				value, ok := histogramDataPoint.Attributes().Get(k)
+				if ok {
+					assert.Equal(t, v, value.AsString(), "Histogram attributes value do not match")
+				} else {
+					assert.Fail(t, "Histogram attributes key do not match")
 				}
 			}
 		}
@@ -520,40 +462,102 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 	}
 }
 
-func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, useStartTimeMetric bool, startTimeMetricRegex string) {
-	// 1. setup mock server
-	mp, cfg, err := setupMockPrometheus(customConfig, targets...)
-	require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
-	defer mp.Close()
+func testComponent(t *testing.T, targets []*testData, useStartTimeMetric bool, startTimeMetricRegex string) {
+	for _, pdataDirect := range []bool{false, true} {
+		pipelineType := "OpenCensus"
+		if pdataDirect {
+			pipelineType = "pdata"
+		}
+		t.Run(pipelineType, func(t *testing.T) { // 1. setup mock server
+			mp, cfg, err := setupMockPrometheus(targets...)
+			require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
+			defer mp.Close()
 
-	cms := new(consumertest.MetricsSink)
-	rcvr := newPrometheusReceiver(componenttest.NewNopReceiverCreateSettings(), &Config{
-		ReceiverSettings:     config.NewReceiverSettings(config.NewComponentID(typeStr)),
-		PrometheusConfig:     cfg,
-		UseStartTimeMetric:   useStartTimeMetric,
-		StartTimeMetricRegex: startTimeMetricRegex}, cms)
+			cms := new(consumertest.MetricsSink)
+			rcvr := newPrometheusReceiver(componenttest.NewNopReceiverCreateSettings(), &Config{
+				ReceiverSettings:     config.NewReceiverSettings(config.NewComponentID(typeStr)),
+				PrometheusConfig:     cfg,
+				UseStartTimeMetric:   useStartTimeMetric,
+				StartTimeMetricRegex: startTimeMetricRegex,
+				pdataDirect:          pdataDirect,
+			}, cms)
 
-	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()), "Failed to invoke Start: %v", err)
-	t.Cleanup(func() {
-		// verify state after shutdown is called
-		assert.Lenf(t, flattenTargets(rcvr.scrapeManager.TargetsAll()), len(targets), "expected %v targets to be running", len(targets))
-		require.NoError(t, rcvr.Shutdown(context.Background()))
-		assert.Len(t, flattenTargets(rcvr.scrapeManager.TargetsAll()), 0, "expected scrape manager to have no targets")
-	})
+			require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()), "Failed to invoke Start: %v", err)
+			t.Cleanup(func() {
+				// verify state after shutdown is called
+				assert.Lenf(t, flattenTargets(rcvr.scrapeManager.TargetsAll()), len(targets), "expected %v targets to be running", len(targets))
+				require.NoError(t, rcvr.Shutdown(context.Background()))
+				assert.Len(t, flattenTargets(rcvr.scrapeManager.TargetsAll()), 0, "expected scrape manager to have no targets")
+			})
 
-	// wait for all provided data to be scraped
-	mp.wg.Wait()
-	metrics := cms.AllMetrics()
-	// split and store results by target name
-	pResults := splitMetricsByTarget(metrics)
-	lres, lep := len(pResults), len(mp.endpoints)
-	assert.Equalf(t, lep, lres, "want %d targets, but got %v\n", lep, lres)
+			// wait for all provided data to be scraped
+			mp.wg.Wait()
+			metrics := cms.AllMetrics()
 
-	// loop to validate outputs for each targets
-	for _, target := range targets {
-		t.Run(target.name, func(t *testing.T) {
-			validScrapes := getValidScrapes(t, pResults[target.name])
-			target.validateFunc(t, target, validScrapes)
+			// split and store results by target name
+			pResults := splitMetricsByTarget(metrics)
+			lres, lep := len(pResults), len(mp.endpoints)
+			assert.Equalf(t, lep, lres, "want %d targets, but got %v\n", lep, lres)
+
+			// loop to validate outputs for each targets
+			for _, target := range targets {
+				t.Run(target.name, func(t *testing.T) {
+					validScrapes := pResults[target.name]
+					if !target.useOpenMetrics {
+						validScrapes = getValidScrapes(t, pResults[target.name])
+					}
+					target.validateFunc(t, target, validScrapes)
+				})
+			}
+		})
+	}
+}
+
+// starts prometheus receiver with custom config, retrieves metrics from MetricsSink
+func testComponentCustomConfig(t *testing.T, targets []*testData, cfgMut func(*promcfg.Config)) {
+	for _, pdataDirect := range []bool{false, true} {
+		pipelineType := "OpenCensus"
+		if pdataDirect {
+			pipelineType = "pdata"
+		}
+		t.Run(pipelineType, func(t *testing.T) {
+			ctx := context.Background()
+			mp, cfg, err := setupMockPrometheus(targets...)
+			cfgMut(cfg)
+			require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
+			defer mp.Close()
+
+			cms := new(consumertest.MetricsSink)
+			receiver := newPrometheusReceiver(componenttest.NewNopReceiverCreateSettings(), &Config{
+				ReceiverSettings: config.NewReceiverSettings(config.NewComponentID(typeStr)),
+				PrometheusConfig: cfg,
+				pdataDirect:      pdataDirect,
+			}, cms)
+
+			require.NoError(t, receiver.Start(ctx, componenttest.NewNopHost()))
+
+			// verify state after shutdown is called
+			t.Cleanup(func() { require.NoError(t, receiver.Shutdown(ctx)) })
+
+			// wait for all provided data to be scraped
+			mp.wg.Wait()
+			metrics := cms.AllMetrics()
+
+			// split and store results by target name
+			pResults := splitMetricsByTarget(metrics)
+			lres, lep := len(pResults), len(mp.endpoints)
+			assert.Equalf(t, lep, lres, "want %d targets, but got %v\n", lep, lres)
+
+			// loop to validate outputs for each targets
+			for _, target := range targets {
+				t.Run(target.name, func(t *testing.T) {
+					validScrapes := pResults[target.name]
+					if !target.useOpenMetrics {
+						validScrapes = getValidScrapes(t, pResults[target.name])
+					}
+					target.validateFunc(t, target, validScrapes)
+				})
+			}
 		})
 	}
 }
@@ -582,4 +586,24 @@ func splitMetricsByTarget(metrics []pdata.Metrics) map[string][]*pdata.ResourceM
 		}
 	}
 	return pResults
+}
+
+func getTS(ms pdata.MetricSlice) pdata.Timestamp {
+	if ms.Len() == 0 {
+		return 0
+	}
+	m := ms.At(0)
+	switch m.DataType() {
+	case pdata.MetricDataTypeGauge:
+		return m.Gauge().DataPoints().At(0).Timestamp()
+	case pdata.MetricDataTypeSum:
+		return m.Sum().DataPoints().At(0).Timestamp()
+	case pdata.MetricDataTypeHistogram:
+		return m.Histogram().DataPoints().At(0).Timestamp()
+	case pdata.MetricDataTypeSummary:
+		return m.Summary().DataPoints().At(0).Timestamp()
+	case pdata.MetricDataTypeExponentialHistogram:
+		return m.ExponentialHistogram().DataPoints().At(0).Timestamp()
+	}
+	return 0
 }

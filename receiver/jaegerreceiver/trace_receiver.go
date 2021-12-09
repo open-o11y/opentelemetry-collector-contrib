@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package jaegerreceiver
+package jaegerreceiver // import "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/jaegerreceiver"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"io/ioutil"
@@ -331,7 +332,7 @@ func (jr *jReceiver) startAgent(host component.Host) error {
 
 	// Start upstream grpc client before serving sampling endpoints over HTTP
 	if jr.config.RemoteSamplingClientSettings.Endpoint != "" {
-		grpcOpts, err := jr.config.RemoteSamplingClientSettings.ToDialOptions(host)
+		grpcOpts, err := jr.config.RemoteSamplingClientSettings.ToDialOptions(host, jr.settings.TelemetrySettings)
 		if err != nil {
 			jr.settings.Logger.Error("Error creating grpc dial options for remote sampling endpoint", zap.Error(err))
 			return err
@@ -351,7 +352,7 @@ func (jr *jReceiver) startAgent(host component.Host) error {
 		jr.goroutines.Add(1)
 		go func() {
 			defer jr.goroutines.Done()
-			if err := jr.agentServer.ListenAndServe(); err != http.ErrServerClosed {
+			if err := jr.agentServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) && err != nil {
 				host.ReportFatalError(fmt.Errorf("jaeger agent server error: %w", err))
 			}
 		}()
@@ -451,12 +452,16 @@ func (jr *jReceiver) startCollector(host component.Host) error {
 
 		nr := mux.NewRouter()
 		nr.HandleFunc("/api/traces", jr.HandleThriftHTTPBatch).Methods(http.MethodPost)
-		jr.collectorServer = jr.config.CollectorHTTPSettings.ToServer(nr, jr.settings.TelemetrySettings)
+		jr.collectorServer, cerr = jr.config.CollectorHTTPSettings.ToServer(host, jr.settings.TelemetrySettings, nr)
+		if cerr != nil {
+			return cerr
+		}
+
 		jr.goroutines.Add(1)
 		go func() {
 			defer jr.goroutines.Done()
-			if err := jr.collectorServer.Serve(cln); err != http.ErrServerClosed {
-				host.ReportFatalError(err)
+			if errHTTP := jr.collectorServer.Serve(cln); !errors.Is(errHTTP, http.ErrServerClosed) && errHTTP != nil {
+				host.ReportFatalError(errHTTP)
 			}
 		}()
 	}
@@ -488,8 +493,8 @@ func (jr *jReceiver) startCollector(host component.Host) error {
 		jr.goroutines.Add(1)
 		go func() {
 			defer jr.goroutines.Done()
-			if err := jr.grpc.Serve(gln); err != nil && err != grpc.ErrServerStopped {
-				host.ReportFatalError(err)
+			if errGrpc := jr.grpc.Serve(gln); !errors.Is(errGrpc, grpc.ErrServerStopped) && errGrpc != nil {
+				host.ReportFatalError(errGrpc)
 			}
 		}()
 	}
