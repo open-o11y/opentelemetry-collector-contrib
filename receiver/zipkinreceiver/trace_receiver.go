@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package zipkinreceiver
+package zipkinreceiver // import "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/zipkinreceiver"
 
 import (
 	"compress/gzip"
@@ -94,10 +94,15 @@ func (zr *zipkinReceiver) Start(_ context.Context, host component.Host) error {
 		return errors.New("nil host")
 	}
 
+	var err error
 	zr.host = host
-	zr.server = zr.config.HTTPServerSettings.ToServer(zr, zr.settings.TelemetrySettings)
+	zr.server, err = zr.config.HTTPServerSettings.ToServer(host, zr.settings.TelemetrySettings, zr)
+	if err != nil {
+		return err
+	}
+
 	var listener net.Listener
-	listener, err := zr.config.HTTPServerSettings.ToListener()
+	listener, err = zr.config.HTTPServerSettings.ToListener()
 	if err != nil {
 		return err
 	}
@@ -105,7 +110,7 @@ func (zr *zipkinReceiver) Start(_ context.Context, host component.Host) error {
 	go func() {
 		defer zr.shutdownWG.Done()
 
-		if errHTTP := zr.server.Serve(listener); errHTTP != http.ErrServerClosed {
+		if errHTTP := zr.server.Serve(listener); !errors.Is(errHTTP, http.ErrServerClosed) && errHTTP != nil {
 			host.ReportFatalError(errHTTP)
 		}
 	}()

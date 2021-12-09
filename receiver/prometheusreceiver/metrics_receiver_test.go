@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/model/pdata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -55,9 +56,6 @@ rpc_duration_seconds_sum 5000
 rpc_duration_seconds_count 1000
 `
 
-// target1Page2 has higher value than previous scrapes.
-// So, even after seeing a failed scrape, start_timestamp should not be reset for target1Page2
-// Start_timestamp should be of the initial scrape for target1Page2
 var target1Page2 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
@@ -87,7 +85,8 @@ rpc_duration_seconds_count 1001
 `
 
 func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
-	verifyValidNumScrapeResults(t, td, resourceMetrics)
+	verifyNumScrapeResults(t, td, resourceMetrics)
+	require.Greater(t, len(resourceMetrics), 0, "At least one resource metric should be present")
 	m1 := resourceMetrics[0]
 
 	// m1 has 4 metrics + 5 internal scraper metrics
@@ -96,7 +95,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	wantAttributes := td.attributes
 
 	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts1 := getTS(metrics1)
 	e1 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -158,7 +157,7 @@ func verifyTarget1(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	assert.Equal(t, 9, metricsCount(m2))
 
 	metricsScrape2 := m2.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts2 := metricsScrape2.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts2 := getTS(metricsScrape2)
 	e2 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -281,7 +280,8 @@ http_requests_total{method="post",code="500"} 5
 `
 
 func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
-	verifyValidNumScrapeResults(t, td, resourceMetrics)
+	verifyNumScrapeResults(t, td, resourceMetrics)
+	require.Greater(t, len(resourceMetrics), 0, "At least one resource metric should be present")
 	m1 := resourceMetrics[0]
 	// m1 has 2 metrics + 5 internal scraper metrics
 	assert.Equal(t, 7, metricsCount(m1))
@@ -289,7 +289,7 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	wantAttributes := td.attributes
 
 	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts1 := getTS(metrics1)
 	e1 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -329,7 +329,7 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	assert.Equal(t, 7, metricsCount(m2))
 
 	metricsScrape2 := m2.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts2 := metricsScrape2.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts2 := getTS(metricsScrape2)
 	e2 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -377,7 +377,7 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	assert.Equal(t, 7, metricsCount(m3))
 
 	metricsScrape3 := m3.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts3 := metricsScrape3.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts3 := getTS(metricsScrape3)
 	e3 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -425,7 +425,7 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	assert.Equal(t, 7, metricsCount(m4))
 
 	metricsScrape4 := m4.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts4 := metricsScrape4.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts4 := getTS(metricsScrape4)
 	e4 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -473,7 +473,7 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	assert.Equal(t, 7, metricsCount(m5))
 
 	metricsScrape5 := m5.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts5 := metricsScrape5.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts5 := getTS(metricsScrape5)
 	e5 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -517,20 +517,12 @@ func verifyTarget2(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 	doCompare(t, "scrape5", wantAttributes, m5, e5)
 }
 
-// target3 for all data types, including summaries and histograms. one of the summary and histogram have only
+// target3 for complicated data types, including summaries and histograms. one of the summary and histogram have only
 // sum/count, for the summary it's valid, however the histogram one is not, but it shall not cause the scrape to fail
-
-// With the 2nd page, we are simulating a reset (values smaller than previous), start_timestamp should be from
-// this run for the 2nd scrape, despite a failed scrape between 1st and 2nd page.
 var target3Page1 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
 go_threads 18
-
-# HELP http_requests_total The total number of HTTP requests.
-# TYPE http_requests_total counter
-http_requests_total{method="post",code="200"} 100
-http_requests_total{method="post",code="400"} 5
 
 # A histogram, which has a pretty complex representation in the text format:
 # HELP http_request_duration_seconds A histogram of the request duration.
@@ -562,27 +554,20 @@ rpc_duration_seconds_sum{foo="no_quantile"} 100
 rpc_duration_seconds_count{foo="no_quantile"} 50
 `
 
-// target3Page2 has lower value than previous scrapes.
-// So, even after seeing a failed scrape, start_timestamp should be reset for target3Page2
 var target3Page2 = `
 # HELP go_threads Number of OS threads created
 # TYPE go_threads gauge
 go_threads 16
 
-# HELP http_requests_total The total number of HTTP requests.
-# TYPE http_requests_total counter
-http_requests_total{method="post",code="200"} 99
-http_requests_total{method="post",code="400"} 3
-
 # A histogram, which has a pretty complex representation in the text format:
 # HELP http_request_duration_seconds A histogram of the request duration.
 # TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{le="0.2"} 9000
-http_request_duration_seconds_bucket{le="0.5"} 10000
-http_request_duration_seconds_bucket{le="1"} 11000
-http_request_duration_seconds_bucket{le="+Inf"} 12000
-http_request_duration_seconds_sum 49000
-http_request_duration_seconds_count 12000
+http_request_duration_seconds_bucket{le="0.2"} 11000
+http_request_duration_seconds_bucket{le="0.5"} 12000
+http_request_duration_seconds_bucket{le="1"} 13001
+http_request_duration_seconds_bucket{le="+Inf"} 14003
+http_request_duration_seconds_sum 50100
+http_request_duration_seconds_count 14003
 
 # A corrupted histogram with only sum and count	
 # HELP corrupted_hist A corrupted_hist.
@@ -593,26 +578,28 @@ corrupted_hist_count 15
 # Finally a summary, which has a complex representation, too:
 # HELP rpc_duration_seconds A summary of the RPC duration in seconds.
 # TYPE rpc_duration_seconds summary
-rpc_duration_seconds{foo="bar" quantile="0.01"} 30
-rpc_duration_seconds{foo="bar" quantile="0.05"} 32
-rpc_duration_seconds{foo="bar" quantile="0.5"} 44
+rpc_duration_seconds{foo="bar" quantile="0.01"} 32
+rpc_duration_seconds{foo="bar" quantile="0.05"} 35
+rpc_duration_seconds{foo="bar" quantile="0.5"} 47
 rpc_duration_seconds{foo="bar" quantile="0.9"} 70
 rpc_duration_seconds{foo="bar" quantile="0.99"} 77
-rpc_duration_seconds_sum{foo="bar"} 7800
-rpc_duration_seconds_count{foo="bar"} 850
-rpc_duration_seconds_sum{foo="no_quantile"} 95
-rpc_duration_seconds_count{foo="no_quantile"} 45
+rpc_duration_seconds_sum{foo="bar"} 8100
+rpc_duration_seconds_count{foo="bar"} 950
+rpc_duration_seconds_sum{foo="no_quantile"} 101
+rpc_duration_seconds_count{foo="no_quantile"} 55
 `
 
 func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.ResourceMetrics) {
-	verifyValidNumScrapeResults(t, td, resourceMetrics)
-	wantAttributes := td.attributes
-
+	verifyNumScrapeResults(t, td, resourceMetrics)
+	require.Greater(t, len(resourceMetrics), 0, "At least one resource metric should be present")
 	m1 := resourceMetrics[0]
 	// m1 has 3 metrics + 5 internal scraper metrics
-	assert.Equal(t, 9, metricsCount(m1))
+	assert.Equal(t, 8, metricsCount(m1))
+
+	wantAttributes := td.attributes
+
 	metrics1 := m1.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts1 := metrics1.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts1 := getTS(metrics1)
 	e1 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -621,27 +608,6 @@ func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 					numberPointComparator: []numberPointComparator{
 						compareTimestamp(ts1),
 						compareDoubleValue(18),
-					},
-				},
-			}),
-
-		assertMetricPresent("http_requests_total",
-			compareMetricType(pdata.MetricDataTypeSum),
-			[]dataPointExpectation{
-				{
-					numberPointComparator: []numberPointComparator{
-						compareStartTimestamp(ts1),
-						compareTimestamp(ts1),
-						compareDoubleValue(100),
-						compareAttributes(map[string]string{"method": "post", "code": "200"}),
-					},
-				},
-				{
-					numberPointComparator: []numberPointComparator{
-						compareStartTimestamp(ts1),
-						compareTimestamp(ts1),
-						compareDoubleValue(5),
-						compareAttributes(map[string]string{"method": "post", "code": "400"}),
 					},
 				},
 			}),
@@ -682,9 +648,10 @@ func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 
 	m2 := resourceMetrics[1]
 	// m2 has 3 metrics + 5 internal scraper metrics
-	assert.Equal(t, 9, metricsCount(m2))
+	assert.Equal(t, 8, metricsCount(m2))
+
 	metricsScrape2 := m2.InstrumentationLibraryMetrics().At(0).Metrics()
-	ts2 := metricsScrape2.At(0).Gauge().DataPoints().At(0).Timestamp()
+	ts2 := getTS(metricsScrape2)
 	e2 := []testExpectation{
 		assertMetricPresent("go_threads",
 			compareMetricType(pdata.MetricDataTypeGauge),
@@ -696,37 +663,14 @@ func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 					},
 				},
 			}),
-		assertMetricPresent("http_requests_total",
-			compareMetricType(pdata.MetricDataTypeSum),
-			[]dataPointExpectation{
-				{
-					numberPointComparator: []numberPointComparator{
-						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to the failed scrape had higher value
-						//compareStartTimestamp(ts2),
-						compareTimestamp(ts2),
-						compareDoubleValue(99),
-						compareAttributes(map[string]string{"method": "post", "code": "200"}),
-					},
-				},
-				{
-					numberPointComparator: []numberPointComparator{
-						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to failed scrapes had higher value
-						//compareStartTimestamp(ts2),
-						compareTimestamp(ts2),
-						compareDoubleValue(3),
-						compareAttributes(map[string]string{"method": "post", "code": "400"}),
-					},
-				},
-			}),
 		assertMetricPresent("http_request_duration_seconds",
 			compareMetricType(pdata.MetricDataTypeHistogram),
 			[]dataPointExpectation{
 				{
 					histogramPointComparator: []histogramPointComparator{
-						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to failed scrapes had higher value
-						//compareHistogramStartTimestamp(ts2),
+						compareHistogramStartTimestamp(ts1),
 						compareHistogramTimestamp(ts2),
-						compareHistogram(12000, 49000, []uint64{9000, 1000, 1000, 1000}),
+						compareHistogram(14003, 50100, []uint64{11000, 1000, 1001, 1002}),
 					},
 				},
 			}),
@@ -736,20 +680,18 @@ func verifyTarget3(t *testing.T, td *testData, resourceMetrics []*pdata.Resource
 			[]dataPointExpectation{
 				{
 					summaryPointComparator: []summaryPointComparator{
-						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to failed scrapes had higher value
-						//compareSummaryStartTimestamp(ts2),
+						compareSummaryStartTimestamp(ts1),
 						compareSummaryTimestamp(ts2),
 						compareSummaryAttributes(map[string]string{"foo": "bar"}),
-						compareSummary(850, 7800, [][]float64{{0.01, 30}, {0.05, 32}, {0.5, 44}, {0.9, 70}, {0.99, 77}}),
+						compareSummary(950, 8100, [][]float64{{0.01, 32}, {0.05, 35}, {0.5, 47}, {0.9, 70}, {0.99, 77}}),
 					},
 				},
 				{
 					summaryPointComparator: []summaryPointComparator{
-						// TODO: #6360 Prometheus Receiver Issue- start_timestamp should reset after a failed scrape, if the scrape prior to failed scrapes had higher value
-						//compareSummaryStartTimestamp(ts2),
+						compareSummaryStartTimestamp(ts1),
 						compareSummaryTimestamp(ts2),
 						compareSummaryAttributes(map[string]string{"foo": "no_quantile"}),
-						compareSummary(45, 95, [][]float64{}),
+						compareSummary(55, 101, [][]float64{}),
 					},
 				},
 			}),
@@ -787,13 +729,12 @@ func TestCoreMetricsEndToEnd(t *testing.T) {
 			name: "target3",
 			pages: []mockPrometheusResponse{
 				{code: 200, data: target3Page1},
-				{code: 500, data: ""},
 				{code: 200, data: target3Page2},
 			},
 			validateFunc: verifyTarget3,
 		},
 	}
-	testComponent(t, targets, nil, false, "", false)
+	testComponent(t, targets, false, "")
 }
 
 var startTimeMetricPage = `
@@ -830,7 +771,7 @@ var startTimeMetricPageStartTimestamp = &timestamppb.Timestamp{Seconds: 400, Nan
 const numStartTimeMetricPageTimeseries = 11
 
 func verifyStartTimeMetricPage(t *testing.T, td *testData, result []*pdata.ResourceMetrics) {
-	verifyValidNumScrapeResults(t, td, result)
+	verifyNumScrapeResults(t, td, result)
 	numTimeseries := 0
 	for _, rm := range result {
 		metrics := getMetrics(rm)
@@ -840,26 +781,26 @@ func verifyStartTimeMetricPage(t *testing.T, td *testData, result []*pdata.Resou
 			case pdata.MetricDataTypeGauge:
 				timestamp = nil
 				for j := 0; j < metrics[i].Gauge().DataPoints().Len(); j++ {
-					time := timestamppb.New(metrics[i].Gauge().DataPoints().At(j).StartTimestamp().AsTime())
+					time := metrics[i].Gauge().DataPoints().At(j).StartTimestamp()
 					assert.Equal(t, timestamp.AsTime(), time.AsTime())
 					numTimeseries++
 				}
 
 			case pdata.MetricDataTypeSum:
 				for j := 0; j < metrics[i].Sum().DataPoints().Len(); j++ {
-					assert.Equal(t, timestamp.AsTime(), timestamppb.New(metrics[i].Sum().DataPoints().At(j).StartTimestamp().AsTime()).AsTime())
+					assert.Equal(t, timestamp.AsTime(), metrics[i].Sum().DataPoints().At(j).StartTimestamp().AsTime())
 					numTimeseries++
 				}
 
 			case pdata.MetricDataTypeHistogram:
 				for j := 0; j < metrics[i].Histogram().DataPoints().Len(); j++ {
-					assert.Equal(t, timestamp.AsTime(), timestamppb.New(metrics[i].Histogram().DataPoints().At(j).StartTimestamp().AsTime()).AsTime())
+					assert.Equal(t, timestamp.AsTime(), metrics[i].Histogram().DataPoints().At(j).StartTimestamp().AsTime())
 					numTimeseries++
 				}
 
 			case pdata.MetricDataTypeSummary:
 				for j := 0; j < metrics[i].Summary().DataPoints().Len(); j++ {
-					assert.Equal(t, timestamp.AsTime(), timestamppb.New(metrics[i].Summary().DataPoints().At(j).StartTimestamp().AsTime()).AsTime())
+					assert.Equal(t, timestamp.AsTime(), metrics[i].Summary().DataPoints().At(j).StartTimestamp().AsTime())
 					numTimeseries++
 				}
 			}
@@ -879,8 +820,7 @@ func TestStartTimeMetric(t *testing.T) {
 			validateFunc: verifyStartTimeMetricPage,
 		},
 	}
-
-	testComponent(t, targets, nil, true, "", false)
+	testComponent(t, targets, true, "")
 }
 
 var startTimeMetricRegexPage = `
@@ -929,6 +869,5 @@ func TestStartTimeMetricRegex(t *testing.T) {
 			validateFunc: verifyStartTimeMetricPage,
 		},
 	}
-
-	testComponent(t, targets, nil, true, "^(.+_)*process_start_time_seconds$", false)
+	testComponent(t, targets, true, "^(.+_)*process_start_time_seconds$")
 }
