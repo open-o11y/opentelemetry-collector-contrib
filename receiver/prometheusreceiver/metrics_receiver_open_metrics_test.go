@@ -68,8 +68,8 @@ func TestOpenMetricsPositive(t *testing.T) {
 			pages: []mockPrometheusResponse{
 				{code: 200, data: v, useOpenMetrics: true},
 			},
-			validateFunc:     verifyPositiveTarget,
-			skipValidScrapes: true,
+			validateFunc:    verifyPositiveTarget,
+			validateScrapes: true,
 		}
 		targets = append(targets, testData)
 	}
@@ -100,8 +100,8 @@ func TestOpenMetricsNegative(t *testing.T) {
 			pages: []mockPrometheusResponse{
 				{code: 200, data: v, useOpenMetrics: true},
 			},
-			validateFunc:     verifyNegativeTarget,
-			skipValidScrapes: true,
+			validateFunc:    verifyNegativeTarget,
+			validateScrapes: true,
 		}
 		targets = append(targets, testData)
 	}
