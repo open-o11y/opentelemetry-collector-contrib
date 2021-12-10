@@ -112,11 +112,11 @@ var (
 )
 
 type testData struct {
-	name             string
-	pages            []mockPrometheusResponse
-	attributes       pdata.AttributeMap
-	skipValidScrapes bool
-	validateFunc     func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
+	name            string
+	pages           []mockPrometheusResponse
+	attributes      pdata.AttributeMap
+	validateScrapes bool
+	validateFunc    func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
 }
 
 // setupMockPrometheus to create a mocked prometheus based on targets, returning the server and a prometheus exporting
@@ -396,7 +396,7 @@ func compareAttributes(attributes map[string]string) numberPointComparator {
 				if ok {
 					assert.Equal(t, v, val.AsString(), "Attributes do not match")
 				} else {
-					assert.Failf(t, "Attributes key do not match", k)
+					assert.Failf(t, "Attributes key does not match: %v", k)
 				}
 			}
 		}
@@ -412,7 +412,7 @@ func compareSummaryAttributes(attributes map[string]string) summaryPointComparat
 				if ok {
 					assert.Equal(t, v, val.AsString(), "Summary attributes value do not match")
 				} else {
-					assert.Failf(t, "Summary attributes key do not match", k)
+					assert.Failf(t, "Summary attributes key does not match: %v", k)
 				}
 			}
 		}
@@ -494,7 +494,7 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 			for i := 0; i < summaryDataPoint.QuantileValues().Len(); i++ {
 				assert.Equal(t, quantiles[i][0], summaryDataPoint.QuantileValues().At(i).Quantile(),
 					"Summary quantile do not match")
-				if math.Float64bits(quantiles[i][1]) == value.NormalNaN {
+				if math.IsNaN(quantiles[i][1]) {
 					assert.True(t, math.Float64bits(summaryDataPoint.QuantileValues().At(i).Value()) == value.NormalNaN,
 						"Summary quantile value is not normalNaN as expected")
 				} else {
@@ -553,7 +553,7 @@ func testComponent(t *testing.T, targets []*testData, useStartTimeMetric bool, s
 			for _, target := range targets {
 				t.Run(target.name, func(t *testing.T) {
 					scrapes := pResults[target.name]
-					if !target.skipValidScrapes {
+					if !target.validateScrapes {
 						scrapes = getValidScrapes(t, pResults[target.name])
 					}
 					target.validateFunc(t, target, scrapes)
