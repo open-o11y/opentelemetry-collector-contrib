@@ -112,19 +112,11 @@ var (
 )
 
 type testData struct {
-<<<<<<< HEAD
 	name            string
 	pages           []mockPrometheusResponse
 	attributes      pdata.AttributeMap
 	validateScrapes bool
 	validateFunc    func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
-=======
-	name             string
-	pages            []mockPrometheusResponse
-	attributes       pdata.AttributeMap
-	skipValidScrapes bool
-	validateFunc     func(t *testing.T, td *testData, result []*pdata.ResourceMetrics)
->>>>>>> 6084c7851 (Adding test for renaming metric)
 }
 
 // setupMockPrometheus to create a mocked prometheus based on targets, returning the server and a prometheus exporting
@@ -404,11 +396,7 @@ func compareAttributes(attributes map[string]string) numberPointComparator {
 				if ok {
 					assert.Equal(t, v, val.AsString(), "Attributes do not match")
 				} else {
-<<<<<<< HEAD
 					assert.Failf(t, "Attributes key does not match: %v", k)
-=======
-					assert.Failf(t, "Attributes key do not match", k)
->>>>>>> 6084c7851 (Adding test for renaming metric)
 				}
 			}
 		}
@@ -424,11 +412,7 @@ func compareSummaryAttributes(attributes map[string]string) summaryPointComparat
 				if ok {
 					assert.Equal(t, v, val.AsString(), "Summary attributes value do not match")
 				} else {
-<<<<<<< HEAD
 					assert.Failf(t, "Summary attributes key does not match: %v", k)
-=======
-					assert.Failf(t, "Summary attributes key do not match", k)
->>>>>>> 6084c7851 (Adding test for renaming metric)
 				}
 			}
 		}
@@ -510,11 +494,7 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 			for i := 0; i < summaryDataPoint.QuantileValues().Len(); i++ {
 				assert.Equal(t, quantiles[i][0], summaryDataPoint.QuantileValues().At(i).Quantile(),
 					"Summary quantile do not match")
-<<<<<<< HEAD
 				if math.IsNaN(quantiles[i][1]) {
-=======
-				if math.Float64bits(quantiles[i][1]) == value.NormalNaN {
->>>>>>> 6084c7851 (Adding test for renaming metric)
 					assert.True(t, math.Float64bits(summaryDataPoint.QuantileValues().At(i).Value()) == value.NormalNaN,
 						"Summary quantile value is not normalNaN as expected")
 				} else {
@@ -526,57 +506,12 @@ func compareSummary(count uint64, sum float64, quantiles [][]float64) summaryPoi
 	}
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 6084c7851 (Adding test for renaming metric)
 // starts prometheus receiver with custom config, retrieves metrics from MetricsSink
 func testComponent(t *testing.T, targets []*testData, useStartTimeMetric bool, startTimeMetricRegex string, cfgMuts ...func(*promcfg.Config)) {
 	for _, pdataDirect := range []bool{false, true} {
 		pipelineType := "OpenCensus"
 		if pdataDirect {
 			pipelineType = "pdata"
-<<<<<<< HEAD
-=======
-=======
-func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, useStartTimeMetric bool, startTimeMetricRegex string) {
-	// 1. setup mock server
-	mp, cfg, err := setupMockPrometheus(customConfig, targets...)
-	require.Nilf(t, err, "Failed to create Prometheus config: %v", err)
-	defer mp.Close()
-
-	cms := new(consumertest.MetricsSink)
-	rcvr := newPrometheusReceiver(componenttest.NewNopReceiverCreateSettings(), &Config{
-		ReceiverSettings:     config.NewReceiverSettings(config.NewComponentID(typeStr)),
-		PrometheusConfig:     cfg,
-		UseStartTimeMetric:   useStartTimeMetric,
-		StartTimeMetricRegex: startTimeMetricRegex}, cms)
-
-	require.NoError(t, rcvr.Start(context.Background(), componenttest.NewNopHost()), "Failed to invoke Start: %v", err)
-	t.Cleanup(func() {
-		// verify state after shutdown is called
-		assert.Lenf(t, flattenTargets(rcvr.scrapeManager.TargetsAll()), len(targets), "expected %v targets to be running", len(targets))
-		require.NoError(t, rcvr.Shutdown(context.Background()))
-		assert.Len(t, flattenTargets(rcvr.scrapeManager.TargetsAll()), 0, "expected scrape manager to have no targets")
-	})
-
-	// wait for all provided data to be scraped
-	mp.wg.Wait()
-	metrics := cms.AllMetrics()
-	// split and store results by target name
-	pResults := make(map[string][]*pdata.ResourceMetrics)
-	for _, md := range metrics {
-		rms := md.ResourceMetrics()
-		for i := 0; i < rms.Len(); i++ {
-			name, _ := rms.At(i).Resource().Attributes().Get("service.name")
-			pResult, ok := pResults[name.AsString()]
-			if !ok {
-				pResult = make([]*pdata.ResourceMetrics, 0)
-			}
-			rm := rms.At(i)
-			pResults[name.AsString()] = append(pResult, &rm)
->>>>>>> 8c6b5dbd2 (Removing the print method)
->>>>>>> 6084c7851 (Adding test for renaming metric)
 		}
 		t.Run(pipelineType, func(t *testing.T) {
 			ctx := context.Background()
@@ -618,11 +553,7 @@ func testComponent(t *testing.T, targets []*testData, customConfig *promConfig, 
 			for _, target := range targets {
 				t.Run(target.name, func(t *testing.T) {
 					scrapes := pResults[target.name]
-<<<<<<< HEAD
 					if !target.validateScrapes {
-=======
-					if !target.skipValidScrapes {
->>>>>>> 6084c7851 (Adding test for renaming metric)
 						scrapes = getValidScrapes(t, pResults[target.name])
 					}
 					target.validateFunc(t, target, scrapes)
@@ -640,7 +571,6 @@ func flattenTargets(targets map[string][]*scrape.Target) []*scrape.Target {
 	}
 	return flatTargets
 }
-<<<<<<< HEAD
 
 func splitMetricsByTarget(metrics []pdata.Metrics) map[string][]*pdata.ResourceMetrics {
 	pResults := make(map[string][]*pdata.ResourceMetrics)
@@ -678,5 +608,3 @@ func getTS(ms pdata.MetricSlice) pdata.Timestamp {
 	}
 	return 0
 }
-=======
->>>>>>> 8c6b5dbd2 (Removing the print method)
