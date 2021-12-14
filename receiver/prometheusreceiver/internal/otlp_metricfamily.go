@@ -22,6 +22,7 @@ import (
 
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/textparse"
+	"github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/scrape"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
@@ -155,8 +156,19 @@ func (mg *metricGroupPdata) toDistributionPoint(orderedLabelKeys []string, dest 
 	// TODO: (@odeke-em) should we also check OpenTelemetry Pdata for bucket bounds?
 	bounds := make([]float64, len(mg.complexValue)-1)
 	bucketCounts := make([]uint64, len(mg.complexValue))
-
+	point := dest.AppendEmpty()
+	// The timestamp MUST be in retrieved from milliseconds and converted to nanoseconds.
+	tsNanos := pdataTimestampFromMs(mg.ts)
+	if mg.family.isCumulativeTypePdata() {
+		point.SetStartTimestamp(pdataTimestampFromMs(mg.ts)) // metrics_adjuster adjusts the startTimestamp to the initial scrape timestamp
+	}
+	point.SetTimestamp(tsNanos)
+	populateAttributesPdata(orderedLabelKeys, mg.ls, point.Attributes())
 	for i := 0; i < len(mg.complexValue); i++ {
+		if value.IsStaleNaN(mg.complexValue[i].value) {
+			point.SetFlags(1)
+			return true
+		}
 		if i != len(mg.complexValue)-1 {
 			// not need to add +inf as bound to oc proto
 			bounds[i] = mg.complexValue[i].boundary
@@ -167,19 +179,14 @@ func (mg *metricGroupPdata) toDistributionPoint(orderedLabelKeys []string, dest 
 		}
 		bucketCounts[i] = uint64(adjustedCount)
 	}
-
-	point := dest.AppendEmpty()
-	point.SetExplicitBounds(bounds)
-	point.SetCount(uint64(mg.count))
-	point.SetSum(mg.sum)
-	point.SetBucketCounts(bucketCounts)
-	// The timestamp MUST be in retrieved from milliseconds and converted to nanoseconds.
-	tsNanos := pdataTimestampFromMs(mg.ts)
-	if mg.family.isCumulativeTypePdata() {
-		point.SetStartTimestamp(pdataTimestampFromMs(mg.ts)) // metrics_adjuster adjusts the startTimestamp to the initial scrape timestamp
+	if value.IsStaleNaN(mg.sum) || value.IsStaleNaN(mg.count) || len(bucketCounts) == 0 {
+		point.SetFlags(1)
+		return true
 	}
-	point.SetTimestamp(tsNanos)
-	populateAttributesPdata(orderedLabelKeys, mg.ls, point.Attributes())
+	point.SetSum(mg.sum)
+	point.SetCount(uint64(mg.count))
+	point.SetExplicitBounds(bounds)
+	point.SetBucketCounts(bucketCounts)
 
 	return true
 }
@@ -200,12 +207,6 @@ func (mg *metricGroupPdata) toSummaryPoint(orderedLabelKeys []string, dest *pdat
 	mg.sortPoints()
 
 	point := dest.AppendEmpty()
-	quantileValues := point.QuantileValues()
-	for _, p := range mg.complexValue {
-		quantile := quantileValues.AppendEmpty()
-		quantile.SetValue(p.value)
-		quantile.SetQuantile(p.boundary)
-	}
 
 	// Based on the summary description from https://prometheus.io/docs/concepts/metric_types/#summary
 	// the quantiles are calculated over a sliding time window, however, the count is the total count of
@@ -217,9 +218,26 @@ func (mg *metricGroupPdata) toSummaryPoint(orderedLabelKeys []string, dest *pdat
 	if mg.family.isCumulativeTypePdata() {
 		point.SetStartTimestamp(pdataTimestampFromMs(mg.ts)) // metrics_adjuster adjusts the startTimestamp to the initial scrape timestamp
 	}
+	populateAttributesPdata(orderedLabelKeys, mg.ls, point.Attributes())
+
+	if value.IsStaleNaN(mg.sum) || value.IsStaleNaN(mg.count) {
+		point.SetFlags(1)
+		return true
+	}
+	for _, p := range mg.complexValue {
+		if value.IsStaleNaN(p.value) {
+			point.SetFlags(1)
+			return true
+		}
+	}
 	point.SetSum(mg.sum)
 	point.SetCount(uint64(mg.count))
-	populateAttributesPdata(orderedLabelKeys, mg.ls, point.Attributes())
+	quantileValues := point.QuantileValues()
+	for _, p := range mg.complexValue {
+		quantile := quantileValues.AppendEmpty()
+		quantile.SetValue(p.value)
+		quantile.SetQuantile(p.boundary)
+	}
 
 	return true
 }
@@ -235,8 +253,12 @@ func (mg *metricGroupPdata) toNumberDataPoint(orderedLabelKeys []string, dest *p
 	point := dest.AppendEmpty()
 	point.SetStartTimestamp(startTsNanos)
 	point.SetTimestamp(tsNanos)
-	point.SetDoubleVal(mg.value)
 	populateAttributesPdata(orderedLabelKeys, mg.ls, point.Attributes())
+	if value.IsStaleNaN(mg.value) {
+		point.SetFlags(1)
+		return true
+	}
+	point.SetDoubleVal(mg.value)
 
 	return true
 }

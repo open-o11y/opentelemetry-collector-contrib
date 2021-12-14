@@ -15,10 +15,12 @@
 package internal
 
 import (
+	"math"
 	"testing"
 
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/pkg/textparse"
+	"github.com/prometheus/prometheus/pkg/value"
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/model/pdata"
@@ -107,6 +109,107 @@ func TestMetricGroupData_toDistributionUnitTest(t *testing.T) {
 				point.SetBucketCounts([]uint64{33})
 				point.SetExplicitBounds([]float64{})
 				point.SetStartTimestamp(11 * 1e6)
+				attributes := point.Attributes()
+				attributes.InsertString("a", "A")
+				attributes.InsertString("b", "B")
+				return point
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			mp := newMetricFamilyPdata(tt.metricName, mc, zap.NewNop(), tt.intervalStartTimeMs).(*metricFamilyPdata)
+			for _, tv := range tt.scrapes {
+				require.NoError(t, mp.Add(tv.metric, tt.labels.Copy(), tv.at, tv.value))
+			}
+
+			require.Equal(t, 1, len(mp.groups), "Expecting exactly 1 groupKey")
+			groupKey := mp.getGroupKey(tt.labels.Copy())
+			require.NotNil(t, mp.groups[groupKey], "Expecting the groupKey to have a value given key:: "+groupKey)
+
+			hdpL := pdata.NewHistogramDataPointSlice()
+			require.True(t, mp.groups[groupKey].toDistributionPoint(mp.labelKeysOrdered, &hdpL))
+			require.Equal(t, 1, hdpL.Len(), "Exactly one point expected")
+			got := hdpL.At(0)
+			want := tt.want()
+			require.Equal(t, want, got, "Expected the points to be equal")
+		})
+	}
+}
+
+func TestMetricGroupData_toDistributionUnitTest_NoRecordedValue(t *testing.T) {
+	type scrape struct {
+		at     int64
+		value  float64
+		metric string
+	}
+	tests := []struct {
+		name                string
+		metricName          string
+		labels              labels.Labels
+		scrapes             []*scrape
+		want                func() pdata.HistogramDataPoint
+		intervalStartTimeMs int64
+	}{
+		{
+			name:                "histogram with startTimestamp of 11",
+			metricName:          "histogram",
+			intervalStartTimeMs: 11,
+			labels:              labels.Labels{{Name: "a", Value: "A"}, {Name: "le", Value: "0.75"}, {Name: "b", Value: "B"}},
+			scrapes: []*scrape{
+				{at: 11, value: math.Float64frombits(value.StaleNaN), metric: "histogram_count"},
+				{at: 11, value: 24, metric: "histogram_sum"},
+				{at: 13, value: math.Float64frombits(value.StaleNaN), metric: "value"},
+			},
+			want: func() pdata.HistogramDataPoint {
+				point := pdata.NewHistogramDataPoint()
+				point.SetTimestamp(11 * 1e6) // the time in milliseconds -> nanoseconds.
+				point.SetStartTimestamp(11 * 1e6)
+				point.SetFlags(1)
+				attributes := point.Attributes()
+				attributes.InsertString("a", "A")
+				attributes.InsertString("b", "B")
+				return point
+			},
+		},
+		{
+			name:                "histogram with startTimestamp of 12",
+			metricName:          "histogram",
+			intervalStartTimeMs: 12,
+			labels:              labels.Labels{{Name: "a", Value: "A"}, {Name: "le", Value: "0.75"}, {Name: "b", Value: "B"}},
+			scrapes: []*scrape{
+				{at: 12, value: 24, metric: "histogram_count"},
+				{at: 12, value: math.Float64frombits(value.StaleNaN), metric: "histogram_sum"},
+				{at: 13, value: math.Float64frombits(value.StaleNaN), metric: "value"},
+			},
+			want: func() pdata.HistogramDataPoint {
+				point := pdata.NewHistogramDataPoint()
+				point.SetTimestamp(12 * 1e6) // the time in milliseconds -> nanoseconds.
+				point.SetStartTimestamp(12 * 1e6)
+				point.SetFlags(1)
+				attributes := point.Attributes()
+				attributes.InsertString("a", "A")
+				attributes.InsertString("b", "B")
+				return point
+			},
+		},
+		{
+			name:                "histogram with startTimestamp of 13",
+			metricName:          "histogram",
+			intervalStartTimeMs: 13,
+			labels:              labels.Labels{{Name: "a", Value: "A"}, {Name: "le", Value: "0.75"}, {Name: "b", Value: "B"}},
+			scrapes: []*scrape{
+				{at: 13, value: math.Float64frombits(value.StaleNaN), metric: "histogram_count"},
+				{at: 13, value: math.Float64frombits(value.StaleNaN), metric: "histogram_sum"},
+				{at: 14, value: 24, metric: "value"},
+			},
+			want: func() pdata.HistogramDataPoint {
+				point := pdata.NewHistogramDataPoint()
+				point.SetTimestamp(13 * 1e6) // the time in milliseconds -> nanoseconds.
+				point.SetStartTimestamp(13 * 1e6)
+				point.SetFlags(1)
 				attributes := point.Attributes()
 				attributes.InsertString("a", "A")
 				attributes.InsertString("b", "B")
@@ -265,6 +368,76 @@ func TestMetricGroupData_toSummaryUnitTest(t *testing.T) {
 	}
 }
 
+func TestMetricGroupData_toSummaryUnitTest_NoRecordedValue(t *testing.T) {
+	type scrape struct {
+		at     int64
+		value  float64
+		metric string
+	}
+
+	type labelsScrapes struct {
+		labels  labels.Labels
+		scrapes []*scrape
+	}
+	tests := []struct {
+		name          string
+		labelsScrapes []*labelsScrapes
+		want          func() pdata.SummaryDataPoint
+	}{
+		{
+			name: "summary",
+			labelsScrapes: []*labelsScrapes{
+				{
+					labels: labels.Labels{
+						{Name: "a", Value: "A"}, {Name: "quantile", Value: "0.0"}, {Name: "b", Value: "B"},
+					},
+					scrapes: []*scrape{
+						{at: 10, value: math.Float64frombits(value.StaleNaN), metric: "summary_count"},
+						{at: 10, value: math.Float64frombits(value.StaleNaN), metric: "summary_sum"},
+						{at: 10, value: math.Float64frombits(value.StaleNaN), metric: "value"},
+					},
+				},
+			},
+			want: func() pdata.SummaryDataPoint {
+				point := pdata.NewSummaryDataPoint()
+				point.SetFlags(1)
+				point.SetTimestamp(10 * 1e6) // the time in milliseconds -> nanoseconds.
+				point.SetStartTimestamp(10 * 1e6)
+				attributes := point.Attributes()
+				attributes.InsertString("a", "A")
+				attributes.InsertString("b", "B")
+				return point
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			mp := newMetricFamilyPdata(tt.name, mc, zap.NewNop(), 1).(*metricFamilyPdata)
+			for _, lbs := range tt.labelsScrapes {
+				for _, scrape := range lbs.scrapes {
+					require.NoError(t, mp.Add(scrape.metric, lbs.labels.Copy(), scrape.at, scrape.value))
+				}
+			}
+
+			require.Equal(t, 1, len(mp.groups), "Expecting exactly 1 groupKey")
+			// Get the lone group key.
+			groupKey := ""
+			for key := range mp.groups {
+				groupKey = key
+			}
+			require.NotNil(t, mp.groups[groupKey], "Expecting the groupKey to have a value given key:: "+groupKey)
+
+			sdpL := pdata.NewSummaryDataPointSlice()
+			require.True(t, mp.groups[groupKey].toSummaryPoint(mp.labelKeysOrdered, &sdpL))
+			require.Equal(t, 1, sdpL.Len(), "Exactly one point expected")
+			got := sdpL.At(0)
+			want := tt.want()
+			require.Equal(t, want, got, "Expected the points to be equal")
+		})
+	}
+}
+
 func TestMetricGroupData_toNumberDataUnitTest(t *testing.T) {
 	type scrape struct {
 		at     int64
@@ -311,6 +484,63 @@ func TestMetricGroupData_toNumberDataUnitTest(t *testing.T) {
 				point.SetDoubleVal(99.9)
 				point.SetTimestamp(28 * 1e6)      // the time in milliseconds -> nanoseconds.
 				point.SetStartTimestamp(28 * 1e6) // the time in milliseconds -> nanoseconds.
+				attributes := point.Attributes()
+				attributes.InsertString("a", "A")
+				attributes.InsertString("b", "B")
+				return point
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			mp := newMetricFamilyPdata(tt.metricKind, mc, zap.NewNop(), tt.intervalStartTimestampMs).(*metricFamilyPdata)
+			for _, tv := range tt.scrapes {
+				require.NoError(t, mp.Add(tv.metric, tt.labels.Copy(), tv.at, tv.value))
+			}
+
+			require.Equal(t, 1, len(mp.groups), "Expecting exactly 1 groupKey")
+			groupKey := mp.getGroupKey(tt.labels.Copy())
+			require.NotNil(t, mp.groups[groupKey], "Expecting the groupKey to have a value given key:: "+groupKey)
+
+			ndpL := pdata.NewNumberDataPointSlice()
+			require.True(t, mp.groups[groupKey].toNumberDataPoint(mp.labelKeysOrdered, &ndpL))
+			require.Equal(t, 1, ndpL.Len(), "Exactly one point expected")
+			got := ndpL.At(0)
+			want := tt.want()
+			require.Equal(t, want, got, "Expected the points to be equal")
+		})
+	}
+}
+
+func TestMetricGroupData_toNumberDataUnitTest_NoRecordedValue(t *testing.T) {
+	type scrape struct {
+		at     int64
+		value  float64
+		metric string
+	}
+	tests := []struct {
+		name                     string
+		metricKind               string
+		labels                   labels.Labels
+		scrapes                  []*scrape
+		intervalStartTimestampMs int64
+		want                     func() pdata.NumberDataPoint
+	}{
+		{
+			metricKind:               "counter",
+			name:                     "counter:: startTimestampMs of 11",
+			intervalStartTimestampMs: 11,
+			labels:                   labels.Labels{{Name: "a", Value: "A"}, {Name: "b", Value: "B"}},
+			scrapes: []*scrape{
+				{at: 13, value: math.Float64frombits(value.StaleNaN), metric: "value"},
+			},
+			want: func() pdata.NumberDataPoint {
+				point := pdata.NewNumberDataPoint()
+				point.SetFlags(1)
+				point.SetTimestamp(13 * 1e6) // the time in milliseconds -> nanoseconds.
+				point.SetStartTimestamp(13 * 1e6)
 				attributes := point.Attributes()
 				attributes.InsertString("a", "A")
 				attributes.InsertString("b", "B")
