@@ -11,7 +11,7 @@ require (
 	go.uber.org/zap v1.20.0
 )
 
-require go.opentelemetry.io/collector/model v0.44.0
+require go.opentelemetry.io/collector/model v0.45.0
 
 require github.com/testcontainers/testcontainers-go v0.12.0
 
