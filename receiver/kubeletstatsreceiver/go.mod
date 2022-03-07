@@ -7,7 +7,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/kubelet v0.43.0
 	github.com/stretchr/testify v1.7.0
 	go.opentelemetry.io/collector v0.44.0
-	go.opentelemetry.io/collector/model v0.44.0
+	go.opentelemetry.io/collector/model v0.46.0
 	go.uber.org/zap v1.20.0
 	k8s.io/api v0.23.3
 	k8s.io/apimachinery v0.23.3
