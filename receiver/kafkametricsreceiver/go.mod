@@ -3,7 +3,7 @@ module github.com/open-telemetry/opentelemetry-collector-contrib/receiver/kafkam
 go 1.17
 
 require (
-	github.com/Shopify/sarama v1.32.0
+	github.com/Shopify/sarama v1.33.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/kafkaexporter v0.47.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/containertest v0.47.0
 	github.com/stretchr/testify v1.7.1
@@ -32,6 +32,8 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
+	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/jaegertracing/jaeger v1.32.0 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
@@ -69,7 +71,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.4.1 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
-	golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd // indirect
+	golang.org/x/net v0.0.0-20220225172249-27dd8689420f // indirect
 	golang.org/x/sys v0.0.0-20220114195835-da31bd327af9 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa // indirect
