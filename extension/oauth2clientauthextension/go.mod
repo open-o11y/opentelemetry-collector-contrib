@@ -7,7 +7,7 @@ require (
 	go.opentelemetry.io/collector v0.47.1-0.20220316214317-e6ea17cf27a8
 	go.uber.org/zap v1.21.0
 	golang.org/x/oauth2 v0.0.0-20211104180415-d3ed0bb246c8
-	google.golang.org/grpc v1.45.0
+	google.golang.org/grpc v1.47.0
 )
 
 require (
