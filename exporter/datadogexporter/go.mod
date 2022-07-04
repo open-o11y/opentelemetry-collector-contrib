@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/DataDog/agent-payload/v5 v5.0.19
-	github.com/DataDog/datadog-agent/pkg/quantile v0.33.1
+	github.com/DataDog/datadog-agent/pkg/quantile v0.37.1
 	github.com/DataDog/datadog-agent/pkg/trace/exportable v0.0.0-20201016145401-4646cf596b02
 	github.com/aws/aws-sdk-go v1.43.22
 	github.com/cenkalti/backoff/v4 v4.1.2
@@ -24,6 +24,7 @@ require (
 require (
 	github.com/DataDog/datadog-agent/pkg/util/log v0.0.0-20201009092105-58e18918b2db // indirect
 	github.com/DataDog/datadog-go v4.8.2+incompatible // indirect
+	github.com/DataDog/sketches-go v1.4.1 // indirect
 	github.com/Microsoft/go-winio v0.5.1 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
@@ -54,6 +55,7 @@ require (
 	go.uber.org/atomic v1.9.0 // indirect
 	golang.org/x/sys v0.0.0-20220227234510-4e6760a101f9 // indirect
 	golang.org/x/time v0.0.0-20211116232009-f0f3c7e86c11 // indirect
+	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
