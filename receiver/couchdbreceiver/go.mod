@@ -3,7 +3,7 @@ module github.com/open-telemetry/opentelemetry-collector-contrib/receiver/couchd
 go 1.18
 
 require (
-	go.opentelemetry.io/collector v0.57.2
+	go.opentelemetry.io/collector v0.58.0
 	go.uber.org/multierr v1.8.0
 )
 
