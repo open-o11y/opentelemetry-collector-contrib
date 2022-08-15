@@ -42,7 +42,7 @@ require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/scrapertest v0.57.2
 	github.com/pelletier/go-toml v1.9.4 // indirect
-	go.opentelemetry.io/collector/pdata v0.57.2
+	go.opentelemetry.io/collector/pdata v0.58.0
 )
 
 replace github.com/open-telemetry/opentelemetry-collector-contrib/internal/scrapertest => ../../internal/scrapertest
