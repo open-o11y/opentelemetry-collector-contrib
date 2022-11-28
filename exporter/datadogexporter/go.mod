@@ -10,7 +10,7 @@ require (
 	github.com/DataDog/gohai v0.0.0-20220718130825-1776f9beb9cc
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v0.32.5
 	github.com/aws/aws-sdk-go v1.44.72
-	github.com/cenkalti/backoff/v4 v4.1.3
+	github.com/cenkalti/backoff/v4 v4.2.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/aws/ecsutil v0.57.2
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/k8sconfig v0.57.2
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/metadataproviders v0.57.2
