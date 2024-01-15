@@ -8,10 +8,10 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/splunkhecexporter v0.57.2
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.57.2
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/splunk v0.57.2
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.4
 	go.opentelemetry.io/collector v0.57.2
 	go.opentelemetry.io/collector/pdata v0.57.2
-	go.opentelemetry.io/collector/semconv v0.57.2
+	go.opentelemetry.io/collector/semconv v0.92.0
 	go.uber.org/zap v1.22.0
 )
 
