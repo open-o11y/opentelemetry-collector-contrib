@@ -4,13 +4,13 @@ go 1.18
 
 require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/common v0.57.2
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.1
 	go.opencensus.io v0.23.0
 	go.opentelemetry.io/collector v0.57.2
 	go.opentelemetry.io/collector/pdata v0.57.2
 	go.opentelemetry.io/otel v1.9.0
-	go.uber.org/multierr v1.8.0
-	go.uber.org/zap v1.22.0
+	go.uber.org/multierr v1.10.0
+	go.uber.org/zap v1.27.0
 	gonum.org/v1/gonum v0.11.0
 )
 
