@@ -1,13 +1,13 @@
 module github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/jaeger
 
-go 1.18
+go 1.23.0
 
 require (
 	github.com/jaegertracing/jaeger v1.37.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.57.2
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.10.0
 	go.opentelemetry.io/collector/pdata v0.57.2
-	go.opentelemetry.io/collector/semconv v0.57.2
+	go.opentelemetry.io/collector/semconv v0.128.0
 )
 
 require (
