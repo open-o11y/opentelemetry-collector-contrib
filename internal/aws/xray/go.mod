@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/aws/aws-sdk-go v1.44.72
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.11.1
 )
 
 require (
